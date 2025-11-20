@@ -1,3 +1,5 @@
+'use client';
+
 import { Dashboard } from '@/components/dashboard';
 import { GOOGLE_MAPS_API_KEY } from '@/lib/config';
 import { APIProvider } from '@vis.gl/react-google-maps';
