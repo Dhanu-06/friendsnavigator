@@ -1,14 +1,14 @@
 'use client';
 
 import React, { useState, useRef, useEffect } from 'react';
-import type { Message } from '@/lib/types';
-import { useCollection, useFirestore, useUser, useMemoFirebase } from '@/firebase';
-import { collection } from 'firebase/firestore';
+import type { Message, User } from '@/lib/types';
+import { useFirestore, useUser, useMemoFirebase } from '@/firebase';
+import { doc, getDoc } from 'firebase/firestore';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Send, Loader } from 'lucide-react';
+import { Send } from 'lucide-react';
 import { Skeleton } from './ui/skeleton';
 
 type ChatPanelProps = {
@@ -25,27 +25,45 @@ export function ChatPanel({ messages, onSendMessage, isLoading }: ChatPanelProps
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const { user: currentUser } = useUser();
   const firestore = useFirestore();
-  
-  const usersQuery = useMemoFirebase(() => firestore ? collection(firestore, 'users') : null, [firestore]);
-  const { data: usersData } = useCollection(usersQuery);
 
   useEffect(() => {
-    if (usersData) {
-      const newUserMap: UserMap = new Map();
-      usersData.forEach(u => {
-        newUserMap.set(u.id, {
-          name: u.name || 'Anonymous',
-          avatarUrl: u.avatarUrl || 'https://picsum.photos/seed/placeholder/40/40',
-          avatarHint: 'person'
-        });
-      });
-      setUserMap(newUserMap);
-    }
-  }, [usersData]);
+    if (!firestore || messages.length === 0) return;
+
+    const fetchUsers = async () => {
+      const userIds = new Set(messages.map(m => m.senderId));
+      const newUserMap: UserMap = new Map(userMap);
+      let mapUpdated = false;
+
+      for (const userId of userIds) {
+        if (!newUserMap.has(userId)) {
+          try {
+            const userSnap = await getDoc(doc(firestore, 'users', userId));
+            if (userSnap.exists()) {
+              const userData = userSnap.data() as User;
+              newUserMap.set(userId, {
+                name: userData.name || 'Anonymous',
+                avatarUrl: userData.avatarUrl || 'https://picsum.photos/seed/placeholder/40/40',
+                avatarHint: 'person'
+              });
+              mapUpdated = true;
+            }
+          } catch (error) {
+            console.error(`Failed to fetch user ${userId}`, error);
+          }
+        }
+      }
+
+      if (mapUpdated) {
+        setUserMap(newUserMap);
+      }
+    };
+
+    fetchUsers();
+
+  }, [messages, firestore, userMap]);
 
   useEffect(() => {
     if (scrollAreaRef.current) {
-      // A small timeout allows the DOM to update before we scroll
       setTimeout(() => {
         if (scrollAreaRef.current) {
           scrollAreaRef.current.scrollTo({ top: scrollAreaRef.current.scrollHeight, behavior: 'smooth' });

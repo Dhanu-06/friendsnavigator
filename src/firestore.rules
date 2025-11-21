@@ -67,8 +67,9 @@ service cloud.firestore {
      * `participantIds` list.
      * This version reads the existing resource data, for updates/deletes.
      */
-    function isParticipant() {
-      return isSignedIn() && request.auth.uid in resource.data.participantIds;
+    function isParticipant(tripId) {
+       let trip = get(/databases/$(database)/documents/trips/$(tripId));
+      return isSignedIn() && request.auth.uid in trip.data.participantIds;
     }
 
     /**
@@ -91,13 +92,15 @@ service cloud.firestore {
      * @allow (create) A new user can create their own profile document.
      * @allow (get, update, delete) An existing user can manage their own profile.
      * @deny  (list) Users cannot list all other users in the system.
-     * @deny  (get) A user cannot read another user's profile.
+     * @deny  (get) A user cannot read another user's profile unless they are in the same trip.
      * @principle Restricts access to a user's own data tree (Ownership Pattern).
      */
     match /users/{userId} {
-      allow get: if isOwner(userId);
-      allow list: if isSignedIn();
-      allow create: if isSignedIn();
+      // Allow a user to read their own document.
+      // Also allow reading if the requesting user shares a trip with the target user.
+      allow get: if isOwner(userId) || (isSignedIn() && exists(/databases/$(database)/documents/trips/{tripId} where request.auth.uid in get(/databases/$(database)/documents/trips/{tripId}).data.participantIds && userId in get(/databases/$(database)/documents/trips/{tripId}).data.participantIds));
+      allow list: if false; // Explicitly deny listing all users.
+      allow create: if isOwner(userId);
       allow update: if isExistingOwner(userId)
                     && request.resource.data.id == resource.data.id;
       allow delete: if isExistingOwner(userId);
@@ -119,8 +122,8 @@ service cloud.firestore {
       allow list: if isSignedIn();
       allow create: if isSignedIn()
                     && request.auth.uid in request.resource.data.participantIds;
-      allow update: if request.auth.uid in resource.data.participantIds;
-      allow delete: if request.auth.uid in resource.data.participantIds;
+      allow update: if isSignedIn() && request.auth.uid in resource.data.participantIds;
+      allow delete: if isSignedIn() && request.auth.uid in resource.data.participantIds;
     }
 
     /**

@@ -51,7 +51,7 @@ export function Dashboard() {
   const [participants, setParticipants] = useState<Participant[]>([]);
   const [isDataLoading, setIsDataLoading] = useState(true);
 
-  const { user } = useUser();
+  const { user, isUserLoading } = useUser();
   const firestore = useFirestore();
 
   const tripRef = useMemoFirebase(() => firestore ? doc(firestore, 'trips', DEMO_TRIP_ID) : null, [firestore]);
@@ -100,10 +100,10 @@ export function Dashboard() {
   }, [user, firestore, tripRef]);
 
   useEffect(() => {
-    if (isTripLoading || !tripData || !firestore) {
+    if (isUserLoading || isTripLoading || !tripData || !firestore) {
       return;
     }
-
+  
     const fetchParticipants = async () => {
       setIsDataLoading(true);
       const participantIds = tripData.participantIds;
@@ -112,17 +112,15 @@ export function Dashboard() {
         setIsDataLoading(false);
         return;
       }
-      
-      const usersRef = collection(firestore, 'users');
-      const participantsQuery = query(usersRef, where('id', 'in', participantIds));
-      
+  
       try {
-        const snapshot = await getDocs(participantsQuery);
-        const participantUsers = snapshot.docs.map(d => d.data() as User);
-
+        const userPromises = participantIds.map(id => getDoc(doc(firestore, 'users', id)));
+        const userSnaps = await Promise.all(userPromises);
+        const participantUsers = userSnaps.map(snap => snap.data() as User);
+        
         // Merge with mock data for simulation
         const allParticipants = MOCK_USERS.map(mockUser => {
-          const firestoreUser = participantUsers.find(u => u.id === mockUser.id);
+          const firestoreUser = participantUsers.find(u => u?.id === mockUser.id);
           const isCurrentUser = user?.uid === mockUser.id || (user?.uid && mockUser.id === 'user4');
 
           if (isCurrentUser && user) {
@@ -132,12 +130,12 @@ export function Dashboard() {
         }).filter(p => participantIds.includes(p.id));
         
         setParticipants(allParticipants);
-
+  
       } catch (error: any) {
         if (error.code === 'permission-denied') {
             const contextualError = new FirestorePermissionError({
                 operation: 'list',
-                path: 'users',
+                path: 'users', // Even though we fetch one by one, the intent is a list
             });
             errorEmitter.emit('permission-error', contextualError);
         } else {
@@ -147,10 +145,10 @@ export function Dashboard() {
         setIsDataLoading(false);
       }
     };
-
+  
     fetchParticipants();
-
-  }, [tripData, isTripLoading, firestore, user]);
+  
+  }, [tripData, isTripLoading, isUserLoading, firestore, user]);
 
 
   const messagesQuery = useMemoFirebase(() => 
