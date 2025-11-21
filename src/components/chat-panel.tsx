@@ -49,6 +49,8 @@ export function ChatPanel({ messages, onSendMessage, isLoading }: ChatPanelProps
               mapUpdated = true;
             }
           }).catch(error => {
+             // In a real app, you'd want to handle this more gracefully
+             // For now, we'll log it. The security rules should prevent this.
              console.error(`Failed to fetch user ${userId}`, error);
           });
           userFetchPromises.push(promise);

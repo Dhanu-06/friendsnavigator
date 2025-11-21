@@ -80,9 +80,15 @@ export function Dashboard() {
           const currentTripData = tripSnap.data() as Trip;
           if (!currentTripData.participantIds.includes(user.uid)) {
             console.log("User not in trip, adding...");
-            // Not awaiting this is fine
-            updateDocumentNonBlocking(tripRef, {
+            updateDoc(tripRef, {
               participantIds: arrayUnion(user.uid)
+            }).catch(e => {
+                 const contextualError = new FirestorePermissionError({
+                      operation: 'update',
+                      path: tripRef.path,
+                      requestResourceData: { participantIds: arrayUnion(user.uid) }
+                  });
+                  errorEmitter.emit('permission-error', contextualError);
             });
           }
         }

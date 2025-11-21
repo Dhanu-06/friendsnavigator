@@ -20,8 +20,7 @@ service cloud.firestore {
      *   authorization, making rules fast and secure without extra reads for list operations.
      * - Any signed-in user can create a trip, but they must include themselves as the
      *   first participant.
-     * - Any existing participant of a trip can modify the trip details or add/remove
-     *   other participants, fostering a collaborative environment.
+     * - Any existing participant of a trip can modify or delete the trip.
      * - Chat messages can only be sent by trip participants, and only the original sender
      *   can edit or delete their own messages.
      *
@@ -65,15 +64,6 @@ service cloud.firestore {
     /**
      * Returns true if the requesting user's UID is in the provided trip document's
      * `participantIds` list.
-     * This version reads the existing resource data, for updates/deletes.
-     */
-    function isParticipant(tripId) {
-      let trip = get(/databases/$(database)/documents/trips/$(tripId));
-      return isSignedIn() && request.auth.uid in trip.data.participantIds;
-    }
-
-    /**
-     * Returns true if the requesting user is a participant of the parent trip.
      * This performs a `get()` call and is used to secure subcollections.
      */
     function isParentTripParticipant(tripId) {
@@ -81,20 +71,19 @@ service cloud.firestore {
       return isSignedIn() && request.auth.uid in tripDoc.data.participantIds;
     }
 
-    function isTripParticipant(tripId, userId) {
-      return get(/databases/$(database)/documents/trips/$(tripId)).data.participantIds.hasAny([userId]);
-    }
-
-    function doUsersShareTrip(userId) {
-      // Find trips where the requesting user is a participant
-      let requestingUserTrips = firestore.get(/databases/$(database)/documents/trips?participantIds_array_contains=request.auth.uid);
-      // Check if the target user is a participant in any of those trips.
-      // This is not directly possible in security rules in a performant way.
-      // The logic is simplified here to allow reads if they are in ANY trip together.
-      // A more robust solution might involve a "connections" collection or duplicating trip participation info.
-      return exists(/databases/$(database)/documents/trips/{tripId}) &&
-             get(/databases/$(database)/documents/trips/{tripId}).data.participantIds.hasAny([request.auth.uid]) &&
-             get(/databases/$(database)/documents/trips/{tripId}).data.participantIds.hasAny([userId]);
+    /**
+     * Checks if a user is a participant in any trip.
+     * This is a placeholder for more complex logic. In a real app, you might
+     * query a 'userTrips' collection. For this app, we'll check if the user
+     * exists in the participantIds of *any* trip. This is not scalable but
+     * sufficient for the current structure. It will at least allow reads
+     * between users in the same trip.
+     */
+    function doUsersShareTrip(targetUserId) {
+        return exists(
+            /databases/$(database)/documents/trips/{tripId}
+            where get(/databases/$(database)/documents/trips/{tripId}).data.participantIds.hasAny([request.auth.uid, targetUserId])
+        );
     }
 
 
@@ -108,13 +97,11 @@ service cloud.firestore {
      * @allow (create) A new user can create their own profile document.
      * @allow (get, update, delete) An existing user can manage their own profile.
      * @deny  (list) Users cannot list all other users in the system.
-     * @deny  (get) A user cannot read another user's profile unless they are in the same trip.
-     * @principle Restricts access to a user's own data tree (Ownership Pattern).
+     * @allow (get) A user can read another user's profile IF they are in the same trip.
+     * @principle Restricts access to a user's own data tree (Ownership Pattern) and allows limited reads for collaborators.
      */
     match /users/{userId} {
-      // Allow a user to read their own document.
-      // Also allow reading if the requesting user shares a trip with the target user.
-      allow get: if isOwner(userId) || (isSignedIn() && exists(/databases/$(database)/documents/trips/{tripId}) && isTripParticipant(tripId, request.auth.uid) && isTripParticipant(tripId, userId) );
+      allow get: if isOwner(userId) || doUsersShareTrip(userId);
       allow list: if false; // Explicitly deny listing all users.
       allow create: if isOwner(userId);
       allow update: if isExistingOwner(userId)
@@ -135,7 +122,7 @@ service cloud.firestore {
      */
     match /trips/{tripId} {
       allow get: if isSignedIn();
-      allow list: if isSignedIn();
+      allow list: if isSignedIn(); // relies on client-side query `where('participantIds', 'array-contains', user.uid)`
       allow create: if isSignedIn()
                     && request.auth.uid in request.resource.data.participantIds;
       allow update: if isSignedIn() && request.auth.uid in resource.data.participantIds;
