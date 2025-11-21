@@ -63,7 +63,6 @@ export function Dashboard() {
     const setupDemoTrip = async () => {
       if (!tripRef) return;
       const tripSnap = await getDoc(tripRef).catch(error => {
-        // This might fail if rules prevent initial get, which is fine if we are creating it.
         console.warn("Could not get trip doc initially, will try to create/update.", error.message);
         return null;
       });
@@ -77,13 +76,11 @@ export function Dashboard() {
           participantIds: [user.uid, ...MOCK_USERS.map(u => u.id).filter(id => id !== 'user4')],
           status: 'planned',
         };
-        // This set should succeed because of the create rule
-        setDocumentNonBlocking(tripRef, newTrip, {});
+        setDocumentNonBlocking(tripRef, newTrip, { merge: true });
       } else {
         const currentTripData = tripSnap.data() as Trip;
         if (!currentTripData.participantIds.includes(user.uid)) {
           console.log("User not in trip, adding...");
-          // Use updateDoc with arrayUnion for atomicity
           updateDoc(tripRef, {
             participantIds: arrayUnion(user.uid)
           }).catch(error => {

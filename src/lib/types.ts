@@ -6,7 +6,7 @@ export type User = {
   email: string | null;
   avatarUrl: string | null;
   avatarHint?: string;
-  lastLocation?: {
+  location?: { // Changed from lastLocation to location
     lat: number;
     lng: number;
   };
