@@ -9,7 +9,7 @@ import { ParticipantsPanel } from '@/components/participants-panel';
 import { ChatPanel } from '@/components/chat-panel';
 import { Separator } from '@/components/ui/separator';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { useCollection, useDoc, useFirestore, useUser, useMemoFirebase, addDocumentNonBlocking, setDocumentNonBlocking, errorEmitter, FirestorePermissionError } from '@/firebase';
+import { useCollection, useDoc, useFirestore, useUser, useMemoFirebase, addDocumentNonBlocking, setDocumentNonBlocking, FirestorePermissionError, errorEmitter } from '@/firebase';
 import { collection, query, where, doc, getDoc, serverTimestamp, orderBy, Timestamp, getDocs } from 'firebase/firestore';
 
 // Hardcoded tripId for demo purposes
