@@ -8,8 +8,10 @@ import {
   signInWithPopup,
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
+  UserCredential,
 } from 'firebase/auth';
-import { useAuth, useUser } from '@/firebase';
+import { doc, setDoc } from 'firebase/firestore';
+import { useAuth, useFirestore, useUser } from '@/firebase';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -17,6 +19,7 @@ import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Logo } from '@/components/logo';
 import { useToast } from '@/hooks/use-toast';
+import { setDocumentNonBlocking } from '@/firebase';
 
 function GoogleIcon() {
     return (
@@ -51,6 +54,7 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [isSigningIn, setIsSigningIn] = useState(false);
   const auth = useAuth();
+  const firestore = useFirestore();
   const { user, isUserLoading } = useUser();
   const router = useRouter();
   const { toast } = useToast();
@@ -61,6 +65,21 @@ export default function LoginPage() {
     }
   }, [user, isUserLoading, router]);
 
+  const createUserProfile = async (userCred: UserCredential) => {
+    const userRef = doc(firestore, 'users', userCred.user.uid);
+    const userData = {
+      id: userCred.user.uid,
+      name: userCred.user.displayName,
+      email: userCred.user.email,
+      avatarUrl: userCred.user.photoURL,
+    };
+    setDocumentNonBlocking(userRef, userData, { merge: true });
+  }
+
+  const handleAuthSuccess = async (userCred: UserCredential) => {
+    await createUserProfile(userCred);
+    // Let the useEffect handle redirection
+  };
 
   const handleAuthError = (error: any) => {
     console.error("Authentication error:", error);
@@ -75,8 +94,8 @@ export default function LoginPage() {
     setIsSigningIn(true);
     const provider = new GoogleAuthProvider();
     try {
-      await signInWithPopup(auth, provider);
-      // Let the useEffect handle redirection
+      const userCred = await signInWithPopup(auth, provider);
+      await handleAuthSuccess(userCred);
     } catch (error) {
       handleAuthError(error);
     } finally {
@@ -88,8 +107,8 @@ export default function LoginPage() {
     e.preventDefault();
     setIsSigningIn(true);
     try {
-      await createUserWithEmailAndPassword(auth, email, password);
-      // Let the useEffect handle redirection
+      const userCred = await createUserWithEmailAndPassword(auth, email, password);
+      await handleAuthSuccess(userCred);
     } catch (error) {
       handleAuthError(error);
     } finally {
@@ -101,8 +120,8 @@ export default function LoginPage() {
     e.preventDefault();
     setIsSigningIn(true);
     try {
-      await signInWithEmailAndPassword(auth, email, password);
-      // Let the useEffect handle redirection
+      const userCred = await signInWithEmailAndPassword(auth, email, password);
+      await handleAuthSuccess(userCred);
     } catch (error) {
       handleAuthError(error);
     } finally {
