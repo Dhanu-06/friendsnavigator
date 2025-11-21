@@ -19,7 +19,7 @@ import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Logo } from '@/components/logo';
 import { useToast } from '@/hooks/use-toast';
-import { setDocumentNonBlocking } from '@/firebase';
+import { setDocumentNonBlocking } from '@/firebase/non-blocking-updates';
 
 function GoogleIcon() {
     return (
@@ -65,7 +65,8 @@ export default function LoginPage() {
     }
   }, [user, isUserLoading, router]);
 
-  const createUserProfile = async (userCred: UserCredential) => {
+  const createUserProfile = (userCred: UserCredential) => {
+    if (!firestore) return;
     const userRef = doc(firestore, 'users', userCred.user.uid);
     const userData = {
       id: userCred.user.uid,
@@ -73,12 +74,12 @@ export default function LoginPage() {
       email: userCred.user.email,
       avatarUrl: userCred.user.photoURL,
     };
-    // Use the non-blocking helper
+    // Use the non-blocking helper which has contextual error handling built-in
     setDocumentNonBlocking(userRef, userData, { merge: true });
   }
 
-  const handleAuthSuccess = async (userCred: UserCredential) => {
-    await createUserProfile(userCred);
+  const handleAuthSuccess = (userCred: UserCredential) => {
+    createUserProfile(userCred);
     // Let the useEffect handle redirection
   };
 
@@ -92,11 +93,12 @@ export default function LoginPage() {
   }
 
   const handleGoogleSignIn = async () => {
+    if (!auth) return;
     setIsSigningIn(true);
     const provider = new GoogleAuthProvider();
     try {
       const userCred = await signInWithPopup(auth, provider);
-      await handleAuthSuccess(userCred);
+      handleAuthSuccess(userCred);
     } catch (error) {
       handleAuthError(error);
     } finally {
@@ -106,10 +108,11 @@ export default function LoginPage() {
 
   const handleEmailSignUp = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!auth) return;
     setIsSigningIn(true);
     try {
       const userCred = await createUserWithEmailAndPassword(auth, email, password);
-      await handleAuthSuccess(userCred);
+      handleAuthSuccess(userCred);
     } catch (error) {
       handleAuthError(error);
     } finally {
@@ -119,10 +122,11 @@ export default function LoginPage() {
 
   const handleEmailSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!auth) return;
     setIsSigningIn(true);
     try {
       const userCred = await signInWithEmailAndPassword(auth, email, password);
-      await handleAuthSuccess(userCred);
+      handleAuthSuccess(userCred);
     } catch (error) {
       handleAuthError(error);
     } finally {
@@ -203,8 +207,7 @@ export default function LoginPage() {
                     <Input id="email-signup" type="email" placeholder="m@example.com" required value={email} onChange={(e) => setEmail(e.target.value)} />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="password-signup">Password</Label>
-                    <Input id="password-signup" type="password" required value={password} onChange={(e) => setPassword(e.target.value)} />
+                    <Label htmlFor="password-signup">Password</Label>                    <Input id="password-signup" type="password" required value={password} onChange={(e) => setPassword(e.target.value)} />
                   </div>
                   <Button type="submit" className="w-full" disabled={isSigningIn}>
                     {isSigningIn ? 'Creating Account...' : 'Create Account'}
