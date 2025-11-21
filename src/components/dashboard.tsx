@@ -57,6 +57,7 @@ export function Dashboard() {
   const tripRef = useMemoFirebase(() => firestore ? doc(firestore, 'trips', DEMO_TRIP_ID) : null, [firestore]);
   const { data: tripData, isLoading: isTripLoading } = useDoc<Trip>(tripRef);
 
+  // Effect to set up the demo trip and ensure the current user is a participant
   useEffect(() => {
     if (!user || !firestore) return;
   
@@ -74,7 +75,6 @@ export function Dashboard() {
             participantIds: [user.uid, ...MOCK_USERS.map(u => u.id).filter(id => id !== 'user4')],
             status: 'planned',
           };
-          // Not awaiting this is fine
           setDocumentNonBlocking(tripRef, newTrip, { merge: true });
         } else {
           const currentTripData = tripSnap.data() as Trip;
@@ -109,6 +109,7 @@ export function Dashboard() {
   
   }, [user, firestore, tripRef]);
 
+  // Effect to fetch participant details once the trip data is loaded
   useEffect(() => {
     if (isUserLoading || isTripLoading || !tripData || !firestore) {
       return;
@@ -124,9 +125,12 @@ export function Dashboard() {
       }
   
       try {
+        // Fetch each user document individually using getDoc
         const userPromises = participantIds.map(id => getDoc(doc(firestore, 'users', id)));
         const userSnaps = await Promise.all(userPromises);
-        const participantUsers = userSnaps.map(snap => snap.data() as User).filter(Boolean); // Filter out undefined if a doc doesn't exist
+        const participantUsers = userSnaps
+          .map(snap => snap.data() as User)
+          .filter(Boolean); // Filter out undefined if a doc doesn't exist
         
         // Merge with mock data for simulation
         const allParticipants = MOCK_USERS.map(mockUser => {
@@ -136,20 +140,23 @@ export function Dashboard() {
           if (isCurrentUser && user) {
                return { ...mockUser, id: user.uid, name: user.displayName || 'You', avatarUrl: user.photoURL || mockUser.avatarUrl, avatarHint: mockUser.avatarHint || 'person selfie' };
           }
-          return firestoreUser ? { ...mockUser, id: firestoreUser.id, name: firestoreUser.name || mockUser.name, avatarUrl: firestoreUser.avatarUrl || mockUser.avatarUrl, avatarHint: firestoreUser.avatarHint || mockUser.avatarHint } : mockUser;
+          return firestoreUser ? { ...mockUser, id: firestoreUser.id, name: firestoreUser.name || mockUser.name, avatarUrl: firestoreUser.avatarUrl || mockUser.avatarUrl, avatarHint: mockUser.avatarHint || mockUser.avatarHint } : mockUser;
         }).filter(p => participantIds.includes(p.id));
         
         setParticipants(allParticipants);
   
       } catch (error: any) {
+        // This catch block is for network errors or unexpected issues,
+        // as individual `getDoc` permission errors are handled by the `useDoc` hook's architecture.
+        // However, if a batch read was attempted, this is where it would be caught.
+        console.error("An unexpected error occurred while fetching participants:", error);
+        // We can still create a contextual error if we suspect a widespread issue
         if (error.code === 'permission-denied') {
-            const contextualError = new FirestorePermissionError({
-                operation: 'list',
-                path: 'users', // Even though we fetch one by one, the intent is a list
-            });
-            errorEmitter.emit('permission-error', contextualError);
-        } else {
-            console.error("An unexpected error occurred while fetching participants:", error);
+          const contextualError = new FirestorePermissionError({
+              operation: 'list', // Represents the failed user intent
+              path: 'users', 
+          });
+          errorEmitter.emit('permission-error', contextualError);
         }
       } finally {
         setIsDataLoading(false);

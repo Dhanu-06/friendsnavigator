@@ -2,7 +2,7 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import type { Message, User } from '@/lib/types';
-import { useFirestore, useUser, useMemoFirebase } from '@/firebase';
+import { useFirestore, useUser } from '@/firebase';
 import { doc, getDoc } from 'firebase/firestore';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
@@ -34,11 +34,13 @@ export function ChatPanel({ messages, onSendMessage, isLoading }: ChatPanelProps
       const newUserMap: UserMap = new Map(userMap);
       let mapUpdated = false;
 
+      // Use Promise.all to fetch all missing users concurrently
       const userFetchPromises: Promise<void>[] = [];
 
       for (const userId of userIds) {
         if (!newUserMap.has(userId)) {
-          const promise = getDoc(doc(firestore, 'users', userId)).then(userSnap => {
+          const userDocRef = doc(firestore, 'users', userId);
+          const promise = getDoc(userDocRef).then(userSnap => {
             if (userSnap.exists()) {
               const userData = userSnap.data() as User;
               newUserMap.set(userId, {
@@ -49,9 +51,9 @@ export function ChatPanel({ messages, onSendMessage, isLoading }: ChatPanelProps
               mapUpdated = true;
             }
           }).catch(error => {
-             // In a real app, you'd want to handle this more gracefully
-             // For now, we'll log it. The security rules should prevent this.
-             console.error(`Failed to fetch user ${userId}`, error);
+             // Individual getDoc permission errors are automatically handled by the global error listener,
+             // so we just log other potential errors here.
+             console.error(`Failed to fetch user ${userId} for chat:`, error);
           });
           userFetchPromises.push(promise);
         }
