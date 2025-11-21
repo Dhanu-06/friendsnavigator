@@ -67,8 +67,8 @@ service cloud.firestore {
      * `participantIds` list.
      * This version reads the existing resource data, for updates/deletes.
      */
-    function isExistingParticipant(tripData) {
-      return isSignedIn() && resource != null && request.auth.uid in tripData.participantIds;
+    function isParticipant(tripData) {
+      return isSignedIn() && request.auth.uid in tripData.participantIds;
     }
 
     /**
@@ -115,13 +115,13 @@ service cloud.firestore {
      * @principle Enforces shared access via a denormalized participant list (Closed Collaborators Pattern).
      */
     match /trips/{tripId} {
-      allow get: if isParentTripParticipant(tripId);
+      allow get: if isSignedIn() && request.auth.uid in resource.data.participantIds;
       allow list: if isSignedIn();
       allow create: if isSignedIn()
                     && request.auth.uid in request.resource.data.participantIds;
-      allow update: if isParentTripParticipant(tripId)
+      allow update: if isParticipant(resource.data)
                     && request.resource.data.id == resource.data.id;
-      allow delete: if isParentTripParticipant(tripId);
+      allow delete: if isParticipant(resource.data);
     }
 
     /**
