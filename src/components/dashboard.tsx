@@ -63,7 +63,7 @@ export function Dashboard() {
     const setupDemoTrip = async () => {
       if (!tripRef) return;
       const tripSnap = await getDoc(tripRef).catch(error => {
-        // This might fail if rules prevent initial get, which is fine.
+        // This might fail if rules prevent initial get, which is fine if we are creating it.
         console.warn("Could not get trip doc initially, will try to create/update.", error.message);
         return null;
       });
