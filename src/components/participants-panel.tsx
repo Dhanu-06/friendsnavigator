@@ -84,7 +84,7 @@ export function ParticipantsPanel({
         return <Badge variant="outline">Arrived</Badge>;
     }
   };
-  
+
   const renderSkeleton = () => (
     <div className="space-y-4">
       {[...Array(4)].map((_, i) => (
@@ -99,6 +99,11 @@ export function ParticipantsPanel({
       ))}
     </div>
   );
+  
+  const getTransportIcon = (transport: string) => {
+    const Icon = transportIcons[transport];
+    return Icon ? <Icon className="h-4 w-4" /> : null;
+  }
 
   return (
     <div className="p-4 space-y-6">
@@ -137,7 +142,7 @@ export function ParticipantsPanel({
                 <div className="flex-1">
                     <p className="font-medium">{user.name}</p>
                     <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                    {transportIcons[user.transport]}
+                    {getTransportIcon(user.transport)}
                     <span>ETA: {user.eta} min</span>
                     </div>
                 </div>

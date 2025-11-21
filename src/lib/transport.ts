@@ -1,9 +1,10 @@
-import React from 'react';
 import { Car, Bus, Train, Bike } from 'lucide-react';
+import type { LucideProps } from 'lucide-react';
+import type { ForwardRefExoticComponent, RefAttributes } from 'react';
 
-export const transportIcons: Record<string, React.ReactNode> = {
-  car: <Car className="h-4 w-4" />,
-  bus: <Bus className="h-4 w-4" />,
-  train: <Train className="h-4 w-4" />,
-  bike: <Bike className="h-4 w-4" />,
+export const transportIcons: Record<string, ForwardRefExoticComponent<Omit<LucideProps, "ref"> & RefAttributes<SVGSVGElement>>> = {
+  car: Car,
+  bus: Bus,
+  train: Train,
+  bike: Bike,
 };
