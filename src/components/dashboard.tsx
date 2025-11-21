@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
-import type { Participant, MeetingPoint, Trip, User } from '@/lib/types';
+import type { Participant, MeetingPoint, Trip, Message, User } from '@/lib/types';
 import { MOCK_DESTINATION, MOCK_USERS } from '@/lib/data';
 import { Header } from '@/components/header';
 import { MapView } from '@/components/map-view';
@@ -10,7 +10,7 @@ import { ChatPanel } from '@/components/chat-panel';
 import { Separator } from '@/components/ui/separator';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useCollection, useDoc, useFirestore, useUser, useMemoFirebase, addDocumentNonBlocking, setDocumentNonBlocking, FirestorePermissionError, errorEmitter } from '@/firebase';
-import { collection, query, where, doc, getDoc, serverTimestamp, orderBy, Timestamp, getDocs } from 'firebase/firestore';
+import { collection, query, where, doc, getDoc, serverTimestamp, orderBy, Timestamp, getDocs, updateDoc, arrayUnion } from 'firebase/firestore';
 
 // Hardcoded tripId for demo purposes
 const DEMO_TRIP_ID = 'trip123';
@@ -58,30 +58,48 @@ export function Dashboard() {
   const { data: tripData, isLoading: isTripLoading } = useDoc<Trip>(tripRef);
 
   useEffect(() => {
-    if (!user || !firestore || !tripRef) return;
-
+    if (!user || !firestore) return;
+  
     const setupDemoTrip = async () => {
-        const tripSnap = await getDoc(tripRef);
-        if (!tripSnap.exists()) {
-            const newTrip: Trip = {
-                id: DEMO_TRIP_ID,
-                type: 'within-city',
-                destination: MOCK_DESTINATION.name,
-                participantIds: [user.uid, ...MOCK_USERS.map(u => u.id).filter(id => id !== 'user4')],
-                status: 'planned',
-            };
-            setDocumentNonBlocking(tripRef, newTrip, {});
-        } else {
-            const currentTripData = tripSnap.data() as Trip;
-            if (!currentTripData.participantIds.includes(user.uid)) {
-                const updatedParticipants = [...currentTripData.participantIds, user.uid];
-                setDocumentNonBlocking(tripRef, { participantIds: updatedParticipants }, { merge: true });
-            }
+      if (!tripRef) return;
+      const tripSnap = await getDoc(tripRef).catch(error => {
+        // This might fail if rules prevent initial get, which is fine.
+        console.warn("Could not get trip doc initially, will try to create/update.", error.message);
+        return null;
+      });
+  
+      if (!tripSnap || !tripSnap.exists()) {
+        console.log("Trip does not exist, creating...");
+        const newTrip: Trip = {
+          id: DEMO_TRIP_ID,
+          type: 'within-city',
+          destination: MOCK_DESTINATION.name,
+          participantIds: [user.uid, ...MOCK_USERS.map(u => u.id).filter(id => id !== 'user4')],
+          status: 'planned',
+        };
+        // This set should succeed because of the create rule
+        setDocumentNonBlocking(tripRef, newTrip, {});
+      } else {
+        const currentTripData = tripSnap.data() as Trip;
+        if (!currentTripData.participantIds.includes(user.uid)) {
+          console.log("User not in trip, adding...");
+          // Use updateDoc with arrayUnion for atomicity
+          updateDoc(tripRef, {
+            participantIds: arrayUnion(user.uid)
+          }).catch(error => {
+             const contextualError = new FirestorePermissionError({
+                operation: 'update',
+                path: tripRef.path,
+                requestResourceData: { participantIds: arrayUnion(user.uid) }
+            });
+            errorEmitter.emit('permission-error', contextualError);
+          });
         }
+      }
     };
-
-    setupDemoTrip().catch(console.error);
-
+  
+    setupDemoTrip();
+  
   }, [user, firestore, tripRef]);
 
   useEffect(() => {
