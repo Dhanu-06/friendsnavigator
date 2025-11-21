@@ -62,36 +62,40 @@ export function Dashboard() {
   
     const setupDemoTrip = async () => {
       if (!tripRef) return;
-      const tripSnap = await getDoc(tripRef).catch(error => {
-        console.warn("Could not get trip doc initially, will try to create/update.", error.message);
-        return null;
-      });
-  
-      if (!tripSnap || !tripSnap.exists()) {
-        console.log("Trip does not exist, creating...");
-        const newTrip: Trip = {
-          id: DEMO_TRIP_ID,
-          type: 'within-city',
-          destination: MOCK_DESTINATION.name,
-          participantIds: [user.uid, ...MOCK_USERS.map(u => u.id).filter(id => id !== 'user4')],
-          status: 'planned',
-        };
-        setDocumentNonBlocking(tripRef, newTrip, { merge: true });
-      } else {
-        const currentTripData = tripSnap.data() as Trip;
-        if (!currentTripData.participantIds.includes(user.uid)) {
-          console.log("User not in trip, adding...");
-          updateDoc(tripRef, {
-            participantIds: arrayUnion(user.uid)
-          }).catch(error => {
-             const contextualError = new FirestorePermissionError({
-                operation: 'update',
-                path: tripRef.path,
-                requestResourceData: { participantIds: arrayUnion(user.uid) }
+      try {
+        const tripSnap = await getDoc(tripRef);
+    
+        if (!tripSnap.exists()) {
+          console.log("Trip does not exist, creating...");
+          const newTrip: Trip = {
+            id: DEMO_TRIP_ID,
+            type: 'within-city',
+            destination: MOCK_DESTINATION.name,
+            participantIds: [user.uid, ...MOCK_USERS.map(u => u.id).filter(id => id !== 'user4')],
+            status: 'planned',
+          };
+          // Not awaiting this is fine
+          setDocumentNonBlocking(tripRef, newTrip, { merge: true });
+        } else {
+          const currentTripData = tripSnap.data() as Trip;
+          if (!currentTripData.participantIds.includes(user.uid)) {
+            console.log("User not in trip, adding...");
+            // Not awaiting this is fine
+            updateDocumentNonBlocking(tripRef, {
+              participantIds: arrayUnion(user.uid)
             });
-            errorEmitter.emit('permission-error', contextualError);
-          });
+          }
         }
+      } catch (error: any) {
+         if (error.code === 'permission-denied') {
+              const contextualError = new FirestorePermissionError({
+                  operation: 'get',
+                  path: tripRef.path
+              });
+              errorEmitter.emit('permission-error', contextualError);
+          } else {
+              console.error("An unexpected error occurred while setting up the demo trip:", error);
+          }
       }
     };
   
@@ -116,17 +120,17 @@ export function Dashboard() {
       try {
         const userPromises = participantIds.map(id => getDoc(doc(firestore, 'users', id)));
         const userSnaps = await Promise.all(userPromises);
-        const participantUsers = userSnaps.map(snap => snap.data() as User);
+        const participantUsers = userSnaps.map(snap => snap.data() as User).filter(Boolean); // Filter out undefined if a doc doesn't exist
         
         // Merge with mock data for simulation
         const allParticipants = MOCK_USERS.map(mockUser => {
           const firestoreUser = participantUsers.find(u => u?.id === mockUser.id);
-          const isCurrentUser = user?.uid === mockUser.id || (user?.uid && mockUser.id === 'user4');
+          const isCurrentUser = user?.uid === mockUser.id;
 
           if (isCurrentUser && user) {
-               return { ...mockUser, id: user.uid, name: user.displayName || 'You', avatarUrl: user.photoURL || mockUser.avatarUrl };
+               return { ...mockUser, id: user.uid, name: user.displayName || 'You', avatarUrl: user.photoURL || mockUser.avatarUrl, avatarHint: mockUser.avatarHint || 'person selfie' };
           }
-          return firestoreUser ? { ...mockUser, id: firestoreUser.id, name: firestoreUser.name || mockUser.name, avatarUrl: firestoreUser.avatarUrl || mockUser.avatarUrl } : mockUser;
+          return firestoreUser ? { ...mockUser, id: firestoreUser.id, name: firestoreUser.name || mockUser.name, avatarUrl: firestoreUser.avatarUrl || mockUser.avatarUrl, avatarHint: firestoreUser.avatarHint || mockUser.avatarHint } : mockUser;
         }).filter(p => participantIds.includes(p.id));
         
         setParticipants(allParticipants);

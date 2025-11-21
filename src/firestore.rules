@@ -68,7 +68,7 @@ service cloud.firestore {
      * This version reads the existing resource data, for updates/deletes.
      */
     function isParticipant(tripId) {
-       let trip = get(/databases/$(database)/documents/trips/$(tripId));
+      let trip = get(/databases/$(database)/documents/trips/$(tripId));
       return isSignedIn() && request.auth.uid in trip.data.participantIds;
     }
 
@@ -79,6 +79,22 @@ service cloud.firestore {
     function isParentTripParticipant(tripId) {
       let tripDoc = get(/databases/$(database)/documents/trips/$(tripId));
       return isSignedIn() && request.auth.uid in tripDoc.data.participantIds;
+    }
+
+    function isTripParticipant(tripId, userId) {
+      return get(/databases/$(database)/documents/trips/$(tripId)).data.participantIds.hasAny([userId]);
+    }
+
+    function doUsersShareTrip(userId) {
+      // Find trips where the requesting user is a participant
+      let requestingUserTrips = firestore.get(/databases/$(database)/documents/trips?participantIds_array_contains=request.auth.uid);
+      // Check if the target user is a participant in any of those trips.
+      // This is not directly possible in security rules in a performant way.
+      // The logic is simplified here to allow reads if they are in ANY trip together.
+      // A more robust solution might involve a "connections" collection or duplicating trip participation info.
+      return exists(/databases/$(database)/documents/trips/{tripId}) &&
+             get(/databases/$(database)/documents/trips/{tripId}).data.participantIds.hasAny([request.auth.uid]) &&
+             get(/databases/$(database)/documents/trips/{tripId}).data.participantIds.hasAny([userId]);
     }
 
 
@@ -98,7 +114,7 @@ service cloud.firestore {
     match /users/{userId} {
       // Allow a user to read their own document.
       // Also allow reading if the requesting user shares a trip with the target user.
-      allow get: if isOwner(userId) || (isSignedIn() && exists(/databases/$(database)/documents/trips/{tripId} where request.auth.uid in get(/databases/$(database)/documents/trips/{tripId}).data.participantIds && userId in get(/databases/$(database)/documents/trips/{tripId}).data.participantIds));
+      allow get: if isOwner(userId) || (isSignedIn() && exists(/databases/$(database)/documents/trips/{tripId}) && isTripParticipant(tripId, request.auth.uid) && isTripParticipant(tripId, userId) );
       allow list: if false; // Explicitly deny listing all users.
       allow create: if isOwner(userId);
       allow update: if isExistingOwner(userId)

@@ -34,27 +34,31 @@ export function ChatPanel({ messages, onSendMessage, isLoading }: ChatPanelProps
       const newUserMap: UserMap = new Map(userMap);
       let mapUpdated = false;
 
+      const userFetchPromises: Promise<void>[] = [];
+
       for (const userId of userIds) {
         if (!newUserMap.has(userId)) {
-          try {
-            const userSnap = await getDoc(doc(firestore, 'users', userId));
+          const promise = getDoc(doc(firestore, 'users', userId)).then(userSnap => {
             if (userSnap.exists()) {
               const userData = userSnap.data() as User;
               newUserMap.set(userId, {
                 name: userData.name || 'Anonymous',
                 avatarUrl: userData.avatarUrl || 'https://picsum.photos/seed/placeholder/40/40',
-                avatarHint: 'person'
+                avatarHint: userData.avatarHint || 'person'
               });
               mapUpdated = true;
             }
-          } catch (error) {
-            console.error(`Failed to fetch user ${userId}`, error);
-          }
+          }).catch(error => {
+             console.error(`Failed to fetch user ${userId}`, error);
+          });
+          userFetchPromises.push(promise);
         }
       }
 
+      await Promise.all(userFetchPromises);
+
       if (mapUpdated) {
-        setUserMap(newUserMap);
+        setUserMap(new Map(newUserMap)); // Create a new map to trigger re-render
       }
     };
 
