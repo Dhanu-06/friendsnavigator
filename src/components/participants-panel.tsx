@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import type { User, MeetingPoint } from '@/lib/types';
+import type { Participant, MeetingPoint } from '@/lib/types';
 import { suggestMeetingPoint } from '@/ai/flows/ai-meeting-point-suggestion';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
@@ -10,7 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Separator } from '@/components/ui/separator';
-import { AlertCircle, Bike, Bus, Car, ChevronsRight, Loader, Sparkles, Train } from 'lucide-react';
+import { Loader, Sparkles } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import {
   AlertDialog,
@@ -22,33 +22,31 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import { Skeleton } from './ui/skeleton';
+import { transportIcons } from '@/lib/transport';
 
 type ParticipantsPanelProps = {
-  users: User[];
+  users: Participant[];
   tripType: 'within-city' | 'out-of-city';
   onTripTypeChange: (type: 'within-city' | 'out-of-city') => void;
   onSuggestion: (suggestion: MeetingPoint) => void;
+  isLoading: boolean;
 };
 
-const transportIcons = {
-  car: <Car className="h-4 w-4 text-muted-foreground" />,
-  bus: <Bus className="h-4 w-4 text-muted-foreground" />,
-  train: <Train className="h-4 w-4 text-muted-foreground" />,
-  bike: <Bike className="h-4 w-4 text-muted-foreground" />,
-};
 
 export function ParticipantsPanel({
   users,
   tripType,
   onTripTypeChange,
   onSuggestion,
+  isLoading: isPanelLoading,
 }: ParticipantsPanelProps) {
-  const [isLoading, setIsLoading] = useState(false);
+  const [isAISuggesting, setIsAISuggesting] = useState(false);
   const [suggestion, setSuggestion] = useState<MeetingPoint | null>(null);
   const { toast } = useToast();
 
   const handleSuggestMeetingPoint = async () => {
-    setIsLoading(true);
+    setIsAISuggesting(true);
     try {
       const locations = users.map(user => ({
         latitude: user.location.lat,
@@ -72,11 +70,11 @@ export function ParticipantsPanel({
         description: 'Failed to get an AI suggestion. Please try again.',
       });
     } finally {
-      setIsLoading(false);
+      setIsAISuggesting(false);
     }
   };
 
-  const getStatusBadge = (status: User['status']) => {
+  const getStatusBadge = (status: Participant['status']) => {
     switch (status) {
       case 'moving':
         return <Badge variant="secondary" className="bg-green-100 text-green-800 dark:bg-green-900/50 dark:text-green-300">Moving</Badge>;
@@ -86,6 +84,21 @@ export function ParticipantsPanel({
         return <Badge variant="outline">Arrived</Badge>;
     }
   };
+  
+  const renderSkeleton = () => (
+    <div className="space-y-4">
+      {[...Array(4)].map((_, i) => (
+         <div key={i} className="flex items-center gap-4">
+            <Skeleton className="h-10 w-10 rounded-full" />
+            <div className="flex-1 space-y-2">
+                <Skeleton className="h-4 w-24" />
+                <Skeleton className="h-3 w-32" />
+            </div>
+            <Skeleton className="h-6 w-16 rounded-full" />
+        </div>
+      ))}
+    </div>
+  );
 
   return (
     <div className="p-4 space-y-6">
@@ -113,30 +126,32 @@ export function ParticipantsPanel({
 
       <div className="space-y-4">
         <h3 className="font-semibold text-lg">Participants ({users.length})</h3>
-        <div className="space-y-4">
-          {users.map((user) => (
-            <div key={user.id} className="flex items-center gap-4">
-              <Avatar>
-                <AvatarImage src={user.avatarUrl} alt={user.name} data-ai-hint={user.avatarHint} />
-                <AvatarFallback>{user.name.charAt(0)}</AvatarFallback>
-              </Avatar>
-              <div className="flex-1">
-                <p className="font-medium">{user.name}</p>
-                <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                  {transportIcons[user.transport]}
-                  <span>ETA: {user.eta} min</span>
+        {isPanelLoading ? renderSkeleton() : (
+            <div className="space-y-4">
+            {users.map((user) => (
+                <div key={user.id} className="flex items-center gap-4">
+                <Avatar>
+                    <AvatarImage src={user.avatarUrl} alt={user.name} data-ai-hint={user.avatarHint} />
+                    <AvatarFallback>{user.name.charAt(0)}</AvatarFallback>
+                </Avatar>
+                <div className="flex-1">
+                    <p className="font-medium">{user.name}</p>
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    {transportIcons[user.transport]}
+                    <span>ETA: {user.eta} min</span>
+                    </div>
                 </div>
-              </div>
-              {getStatusBadge(user.status)}
+                {getStatusBadge(user.status)}
+                </div>
+            ))}
             </div>
-          ))}
-        </div>
+        )}
       </div>
       
       <Separator />
 
-      <Button onClick={handleSuggestMeetingPoint} disabled={isLoading} className="w-full bg-primary hover:bg-primary/90">
-        {isLoading ? (
+      <Button onClick={handleSuggestMeetingPoint} disabled={isAISuggesting || isPanelLoading} className="w-full bg-primary hover:bg-primary/90">
+        {isAISuggesting ? (
           <Loader className="mr-2 h-4 w-4 animate-spin" />
         ) : (
           <Sparkles className="mr-2 h-4 w-4" />

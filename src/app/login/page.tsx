@@ -73,6 +73,7 @@ export default function LoginPage() {
       email: userCred.user.email,
       avatarUrl: userCred.user.photoURL,
     };
+    // Use the non-blocking helper
     setDocumentNonBlocking(userRef, userData, { merge: true });
   }
 

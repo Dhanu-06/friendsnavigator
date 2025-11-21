@@ -1,4 +1,4 @@
-import type { FieldValue } from 'firebase/firestore';
+import type { FieldValue, Timestamp } from 'firebase/firestore';
 
 export type User = {
   id: string; // This will be the Firebase Auth UID
@@ -42,7 +42,7 @@ export type Message = {
   tripId: string;
   senderId: string;
   text: string;
-  timestamp: FieldValue | Date | string; // Allow for server timestamp, client-side Date, or string
+  timestamp: FieldValue | Timestamp | Date | string; // Allow for server timestamp, client-side Date, or string
 };
 
 export type MeetingPoint = {

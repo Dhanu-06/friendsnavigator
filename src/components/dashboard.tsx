@@ -9,8 +9,8 @@ import { ParticipantsPanel } from '@/components/participants-panel';
 import { ChatPanel } from '@/components/chat-panel';
 import { Separator } from '@/components/ui/separator';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { useCollection, useFirestore, useUser, useMemoFirebase } from '@/firebase';
-import { collection, query, where, doc, getDoc, serverTimestamp, addDoc, orderBy, Timestamp, setDoc } from 'firebase/firestore';
+import { useCollection, useDoc, useFirestore, useUser, useMemoFirebase, addDocumentNonBlocking, setDocumentNonBlocking } from '@/firebase';
+import { collection, query, where, doc, getDoc, serverTimestamp, addDoc, orderBy, Timestamp, setDoc, getDocs } from 'firebase/firestore';
 
 // Hardcoded tripId for demo purposes
 const DEMO_TRIP_ID = 'trip123';
@@ -35,7 +35,10 @@ const formatTimestamp = (timestamp: any): string => {
   let date: Date;
   if (timestamp instanceof Timestamp) {
     date = timestamp.toDate();
-  } else {
+  } else if (timestamp.seconds) {
+    date = new Date(timestamp.seconds * 1000);
+  }
+   else {
     date = new Date(timestamp);
   }
   return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -43,21 +46,19 @@ const formatTimestamp = (timestamp: any): string => {
 
 
 export function Dashboard() {
-  // Local state for UI simulation
-  const [simulatedParticipants, setSimulatedParticipants] = useState<Participant[]>(MOCK_USERS);
   const [tripType, setTripType] = useState<'within-city' | 'out-of-city'>('within-city');
   const [meetingPoint, setMeetingPoint] = useState<MeetingPoint | null>(null);
+  const [participants, setParticipants] = useState<Participant[]>([]);
+  const [isDataLoading, setIsDataLoading] = useState(true);
 
   const { user } = useUser();
   const firestore = useFirestore();
 
-  // --- Firestore Data ---
-  // Memoize Firestore references to prevent re-renders
   const tripRef = useMemoFirebase(() => firestore ? doc(firestore, 'trips', DEMO_TRIP_ID) : null, [firestore]);
-  
-  // Effect to create a demo trip if it doesn't exist
+  const { data: tripData, isLoading: isTripLoading } = useDoc<Trip>(tripRef);
+
   useEffect(() => {
-    if (!user || !tripRef || !firestore) return;
+    if (!user || !firestore || !tripRef) return;
 
     const setupDemoTrip = async () => {
         const tripSnap = await getDoc(tripRef);
@@ -66,71 +67,107 @@ export function Dashboard() {
                 id: DEMO_TRIP_ID,
                 type: 'within-city',
                 destination: MOCK_DESTINATION.name,
-                participantIds: [user.uid],
+                participantIds: [user.uid, ...MOCK_USERS.map(u => u.id).filter(id => id !== 'user4')],
                 status: 'planned',
             };
-            await setDoc(tripRef, newTrip);
+            setDocumentNonBlocking(tripRef, newTrip, {});
         } else {
-            // If the trip exists but user is not a participant, add them.
-            const tripData = tripSnap.data() as Trip;
-            if (!tripData.participantIds.includes(user.uid)) {
-                await setDoc(tripRef, { participantIds: [...tripData.participantIds, user.uid] }, { merge: true });
+            const currentTripData = tripSnap.data() as Trip;
+            if (!currentTripData.participantIds.includes(user.uid)) {
+                const updatedParticipants = [...currentTripData.participantIds, user.uid];
+                setDocumentNonBlocking(tripRef, { participantIds: updatedParticipants }, { merge: true });
             }
         }
     };
 
     setupDemoTrip().catch(console.error);
 
-  }, [user, tripRef, firestore]);
+  }, [user, firestore, tripRef]);
+
+  useEffect(() => {
+    if (isTripLoading || !tripData || !firestore) {
+      return;
+    }
+
+    const fetchParticipants = async () => {
+      setIsDataLoading(true);
+      const participantIds = tripData.participantIds;
+      if (participantIds.length === 0) {
+        setParticipants([]);
+        setIsDataLoading(false);
+        return;
+      }
+      
+      const usersRef = collection(firestore, 'users');
+      // Firestore 'in' query is limited to 30 items. For a hackathon this is fine.
+      const participantsQuery = query(usersRef, where('id', 'in', participantIds));
+      const snapshot = await getDocs(participantsQuery);
+      
+      const participantUsers = snapshot.docs.map(d => d.data() as User);
+
+      // Merge with mock data for simulation
+      const allParticipants = MOCK_USERS.map(mockUser => {
+        const firestoreUser = participantUsers.find(u => u.id === mockUser.id);
+        const isCurrentUser = user?.uid === mockUser.id || (user?.uid && mockUser.id === 'user4');
+
+        if (isCurrentUser && user) {
+             return { ...mockUser, id: user.uid, name: user.displayName || 'You', avatarUrl: user.photoURL || mockUser.avatarUrl };
+        }
+        return firestoreUser ? { ...mockUser, id: firestoreUser.id, name: firestoreUser.name || mockUser.name, avatarUrl: firestoreUser.avatarUrl || mockUser.avatarUrl } : mockUser;
+      });
+      
+      setParticipants(allParticipants);
+      setIsDataLoading(false);
+    };
+
+    fetchParticipants();
+
+  }, [tripData, isTripLoading, firestore, user]);
+
 
   const messagesQuery = useMemoFirebase(() => 
-    firestore ? query(collection(firestore, 'trips', DEMO_TRIP_ID, 'messages'), orderBy('timestamp', 'asc')) : null, 
-    [firestore]
+    firestore && tripData ? query(collection(firestore, 'trips', DEMO_TRIP_ID, 'messages'), orderBy('timestamp', 'asc')) : null, 
+    [firestore, tripData]
   );
   const { data: messagesData, isLoading: messagesLoading } = useCollection<Message>(messagesQuery);
   
-  const participantsQuery = useMemoFirebase(() => 
-    firestore ? collection(firestore, 'users') : null,
-    [firestore]
-  );
-  // In a real app, you would query based on trip.participantIds
-  const { data: usersData, isLoading: usersLoading } = useCollection<User>(participantsQuery);
-
-
-  // Effect for simulating participant movement
+  // Sim movement effect
   useEffect(() => {
     const interval = setInterval(() => {
-      setSimulatedParticipants(prevUsers => prevUsers.map(p => (p.name !== 'You' && p.status !== 'arrived' ? moveUser(p) : p)));
+      setParticipants(prevUsers => prevUsers.map(p => (p.name !== 'You' && p.status !== 'arrived' ? moveUser(p) : p)));
     }, 5000); 
 
     return () => clearInterval(interval);
   }, []);
 
   const handleSendMessage = (text: string) => {
-    if (!user || !firestore) return;
+    if (!user || !firestore || !tripData) return;
     
     const messagesColRef = collection(firestore, `trips/${DEMO_TRIP_ID}/messages`);
-    const newMessage: Omit<Message, 'id'> = {
+    const newMessage: Omit<Message, 'id' | 'timestamp'> & { timestamp: any } = {
       tripId: DEMO_TRIP_ID,
       senderId: user.uid,
       text,
       timestamp: serverTimestamp(),
     };
     
-    addDoc(messagesColRef, newMessage).catch(error => console.error("Failed to send message:", error));
+    addDocumentNonBlocking(messagesColRef, newMessage);
   };
 
   const handleSuggestion = useCallback((suggestion: MeetingPoint) => {
-    const avgLat = simulatedParticipants.reduce((sum, u) => sum + u.location.lat, 0) / simulatedParticipants.length;
-    const avgLng = simulatedParticipants.reduce((sum, u) => sum + u.location.lng, 0) / simulatedParticipants.length;
+    if (participants.length === 0) return;
+    const avgLat = participants.reduce((sum, u) => sum + u.location.lat, 0) / participants.length;
+    const avgLng = participants.reduce((sum, u) => sum + u.location.lng, 0) / participants.length;
     
     setMeetingPoint({
         ...suggestion,
         location: { lat: avgLat, lng: avgLng }
     });
-  }, [simulatedParticipants]);
+  }, [participants]);
 
   const formattedMessages = (messagesData || []).map(m => ({...m, timestamp: formatTimestamp(m.timestamp)}));
+  
+  const isLoading = isTripLoading || isDataLoading;
 
   return (
     <div className="flex flex-col h-screen bg-background text-foreground overflow-hidden">
@@ -139,10 +176,11 @@ export function Dashboard() {
         <aside className="border-r border-border flex flex-col h-full">
           <ScrollArea className="flex-1">
             <ParticipantsPanel
-              users={simulatedParticipants} // Using simulated data for now
+              users={participants}
               tripType={tripType}
               onTripTypeChange={setTripType}
               onSuggestion={handleSuggestion}
+              isLoading={isLoading}
             />
             <Separator className="my-0" />
             <ChatPanel messages={formattedMessages} onSendMessage={handleSendMessage} isLoading={messagesLoading} />
@@ -150,7 +188,7 @@ export function Dashboard() {
         </aside>
 
         <section className="bg-muted/30 h-full relative">
-          <MapView users={simulatedParticipants} meetingPoint={meetingPoint} />
+          <MapView users={participants} meetingPoint={meetingPoint} />
            <div className="absolute top-4 left-4 bg-background/80 backdrop-blur-sm p-3 rounded-lg shadow-lg border border-border">
                 <h3 className="font-semibold text-base">Destination</h3>
                 <p className="text-sm text-muted-foreground flex items-center gap-2">
