@@ -20,8 +20,8 @@ service cloud.firestore {
      *   can only read another user's profile if they share a trip.
      * - The `participantIds` array on a trip document is the single source of truth for
      *   authorization, making rules fast and secure without extra reads for list operations.
-     * - Any signed-in user can create a trip, but they must include themselves as the
-     *   first participant.
+     * - Any signed-in user can create a trip, but they must include themselves as a
+     *   participant.
      * - Any existing participant of a trip can modify the trip details or add/remove
      *   other participants, fostering a collaborative environment.
      * - Chat messages can only be sent by trip participants, and only the original sender
@@ -73,13 +73,15 @@ service cloud.firestore {
      * Checks if the requesting user and the target user share at least one trip.
      * This function is crucial for allowing users to see profile information
      * of their co-travelers without exposing all user data.
+     * It relies on a Firestore index on the `participantIds` array.
      */
     function doUsersShareTrip(targetUserId) {
       // This is a performant and secure way to check for a shared relationship.
-      // It relies on a Firestore index on the `participantIds` array.
-      return exists(
-        /databases/$(database)/documents/trips/{tripId}
-        where get(/databases/$(database)/documents/trips/$(tripId)).data.participantIds.hasAll([request.auth.uid, targetUserId])
+      // It relies on a composite index on the `participantIds` array.
+      return exists(/databases/$(database)/documents/trips/{tripId}
+        .where('participantIds', 'array-contains', request.auth.uid)
+      ) && exists(/databases/$(database)/documents/trips/{tripId}
+        .where('participantIds', 'array-contains', targetUserId)
       );
     }
 
@@ -97,11 +99,15 @@ service cloud.firestore {
      * @principle Restricts access via ownership, but allows reads for collaborators.
      */
     match /users/{userId} {
+      // A user can read their own profile, or another user's profile if they are on a trip together.
       allow get: if isOwner(userId) || doUsersShareTrip(userId);
-      allow list: if false; // Explicitly deny listing all users.
+      
+      // Explicitly deny listing all users for security.
+      allow list: if false;
+      
+      // A user can create, update, and delete their own profile document.
       allow create: if isOwner(userId);
-      allow update: if isExistingOwner(userId)
-                    && request.resource.data.id == resource.data.id;
+      allow update: if isExistingOwner(userId) && request.resource.data.id == resource.data.id;
       allow delete: if isExistingOwner(userId);
     }
 

@@ -129,16 +129,9 @@ export function Dashboard() {
             const userSnap = await getDoc(doc(firestore, 'users', id));
             return userSnap.exists() ? userSnap.data() as User : null;
           } catch (error: any) {
-            if (error.code === 'permission-denied') {
-              const contextualError = new FirestorePermissionError({
-                operation: 'get',
-                path: `users/${id}`,
-              });
-              errorEmitter.emit('permission-error', contextualError);
-            } else {
-              console.error(`Failed to fetch participant ${id}:`, error);
-            }
-            return null;
+             console.error(`Failed to fetch participant ${id}:`, error);
+             // Let the global error handler catch permission-denied
+             return null;
           }
         });
         

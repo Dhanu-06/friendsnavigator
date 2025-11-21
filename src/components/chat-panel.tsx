@@ -50,15 +50,8 @@ export function ChatPanel({ messages, onSendMessage, isLoading }: ChatPanelProps
               mapUpdated = true;
             }
           } catch (error: any) {
-            if (error.code === 'permission-denied') {
-                const contextualError = new FirestorePermissionError({
-                  operation: 'get',
-                  path: `users/${userId}`,
-                });
-                errorEmitter.emit('permission-error', contextualError);
-            } else {
-                console.error(`Failed to fetch user ${userId} for chat:`, error);
-            }
+             console.error(`Failed to fetch user ${userId} for chat:`, error);
+             // Let the global error handler catch permission-denied
           }
         }
       });
