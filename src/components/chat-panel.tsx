@@ -10,6 +10,7 @@ import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Send } from 'lucide-react';
 import { Skeleton } from './ui/skeleton';
+import { FirestorePermissionError, errorEmitter } from '@/firebase';
 
 type ChatPanelProps = {
   messages: Message[];
@@ -34,13 +35,11 @@ export function ChatPanel({ messages, onSendMessage, isLoading }: ChatPanelProps
       const newUserMap: UserMap = new Map(userMap);
       let mapUpdated = false;
 
-      // Use Promise.all to fetch all missing users concurrently
-      const userFetchPromises: Promise<void>[] = [];
-
-      for (const userId of userIds) {
+      const userFetchPromises = Array.from(userIds).map(async (userId) => {
         if (!newUserMap.has(userId)) {
-          const userDocRef = doc(firestore, 'users', userId);
-          const promise = getDoc(userDocRef).then(userSnap => {
+          try {
+            const userDocRef = doc(firestore, 'users', userId);
+            const userSnap = await getDoc(userDocRef);
             if (userSnap.exists()) {
               const userData = userSnap.data() as User;
               newUserMap.set(userId, {
@@ -50,14 +49,19 @@ export function ChatPanel({ messages, onSendMessage, isLoading }: ChatPanelProps
               });
               mapUpdated = true;
             }
-          }).catch(error => {
-             // Individual getDoc permission errors are automatically handled by the global error listener,
-             // so we just log other potential errors here.
-             console.error(`Failed to fetch user ${userId} for chat:`, error);
-          });
-          userFetchPromises.push(promise);
+          } catch (error: any) {
+            if (error.code === 'permission-denied') {
+                const contextualError = new FirestorePermissionError({
+                  operation: 'get',
+                  path: `users/${userId}`,
+                });
+                errorEmitter.emit('permission-error', contextualError);
+            } else {
+                console.error(`Failed to fetch user ${userId} for chat:`, error);
+            }
+          }
         }
-      }
+      });
 
       await Promise.all(userFetchPromises);
 

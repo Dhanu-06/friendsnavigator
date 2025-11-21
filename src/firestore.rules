@@ -8,15 +8,16 @@ service cloud.firestore {
      * to the individual, while trip data is accessible to a defined group of participants.
      *
      * Data Structure:
-     * - /users/{userId}: Private user profile data. Access is restricted to the owner.
+     * - /users/{userId}: Private user profile data. Access is restricted to the owner,
+     *   but readable by co-participants of a shared trip.
      * - /trips/{tripId}: Shared trip documents. Access is controlled by a denormalized
      *   `participantIds` array within each document.
      * - /trips/{tripId}/messages/{messageId}: Chat messages for a trip. Access is
      *   inherited from the parent trip's participant list.
      *
      * Key Security Decisions:
-     * - User privacy is paramount; listing or viewing other users' profiles is disallowed,
-     *   except when users are collaborators on a trip.
+     * - User privacy is paramount; listing all users' profiles is disallowed. A user
+     *   can only read another user's profile if they share a trip.
      * - The `participantIds` array on a trip document is the single source of truth for
      *   authorization, making rules fast and secure without extra reads for list operations.
      * - Any signed-in user can create a trip, but they must include themselves as the
@@ -70,11 +71,12 @@ service cloud.firestore {
     
     /**
      * Checks if the requesting user and the target user share at least one trip.
-     * Scans the 'trips' collection for any document where 'participantIds' contains both UIDs.
+     * This function is crucial for allowing users to see profile information
+     * of their co-travelers without exposing all user data.
      */
     function doUsersShareTrip(targetUserId) {
-      // Security: This query is limited in scope and relies on an index.
-      // It is a valid way to check for a shared relationship between two users.
+      // This is a performant and secure way to check for a shared relationship.
+      // It relies on a Firestore index on the `participantIds` array.
       return exists(
         /databases/$(database)/documents/trips/{tripId}
         where get(/databases/$(database)/documents/trips/$(tripId)).data.participantIds.hasAll([request.auth.uid, targetUserId])

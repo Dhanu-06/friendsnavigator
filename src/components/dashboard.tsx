@@ -59,10 +59,9 @@ export function Dashboard() {
 
   // Effect to set up the demo trip and ensure the current user is a participant
   useEffect(() => {
-    if (!user || !firestore) return;
+    if (!user || !firestore || !tripRef) return;
   
     const setupDemoTrip = async () => {
-      if (!tripRef) return;
       try {
         const tripSnap = await getDoc(tripRef);
     
@@ -125,14 +124,26 @@ export function Dashboard() {
       }
   
       try {
-        // Fetch each user document individually using getDoc
-        const userPromises = participantIds.map(id => getDoc(doc(firestore, 'users', id)));
-        const userSnaps = await Promise.all(userPromises);
-        const participantUsers = userSnaps
-          .map(snap => snap.data() as User)
-          .filter(Boolean); // Filter out undefined if a doc doesn't exist
+        const userPromises = participantIds.map(async (id) => {
+          try {
+            const userSnap = await getDoc(doc(firestore, 'users', id));
+            return userSnap.exists() ? userSnap.data() as User : null;
+          } catch (error: any) {
+            if (error.code === 'permission-denied') {
+              const contextualError = new FirestorePermissionError({
+                operation: 'get',
+                path: `users/${id}`,
+              });
+              errorEmitter.emit('permission-error', contextualError);
+            } else {
+              console.error(`Failed to fetch participant ${id}:`, error);
+            }
+            return null;
+          }
+        });
         
-        // Merge with mock data for simulation
+        const participantUsers = (await Promise.all(userPromises)).filter((u): u is User => !!u);
+        
         const allParticipants = MOCK_USERS.map(mockUser => {
           const firestoreUser = participantUsers.find(u => u?.id === mockUser.id);
           const isCurrentUser = user?.uid === mockUser.id;
@@ -140,24 +151,13 @@ export function Dashboard() {
           if (isCurrentUser && user) {
                return { ...mockUser, id: user.uid, name: user.displayName || 'You', avatarUrl: user.photoURL || mockUser.avatarUrl, avatarHint: mockUser.avatarHint || 'person selfie' };
           }
-          return firestoreUser ? { ...mockUser, id: firestoreUser.id, name: firestoreUser.name || mockUser.name, avatarUrl: firestoreUser.avatarUrl || mockUser.avatarUrl, avatarHint: mockUser.avatarHint || mockUser.avatarHint } : mockUser;
+          return firestoreUser ? { ...mockUser, id: firestoreUser.id, name: firestoreUser.name || mockUser.name, avatarUrl: firestoreUser.avatarUrl || mockUser.avatarUrl, avatarHint: mockUser.avatarHint || 'person face' } : mockUser;
         }).filter(p => participantIds.includes(p.id));
         
         setParticipants(allParticipants);
   
       } catch (error: any) {
-        // This catch block is for network errors or unexpected issues,
-        // as individual `getDoc` permission errors are handled by the `useDoc` hook's architecture.
-        // However, if a batch read was attempted, this is where it would be caught.
         console.error("An unexpected error occurred while fetching participants:", error);
-        // We can still create a contextual error if we suspect a widespread issue
-        if (error.code === 'permission-denied') {
-          const contextualError = new FirestorePermissionError({
-              operation: 'list', // Represents the failed user intent
-              path: 'users', 
-          });
-          errorEmitter.emit('permission-error', contextualError);
-        }
       } finally {
         setIsDataLoading(false);
       }
