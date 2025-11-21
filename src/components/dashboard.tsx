@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
-import type { Participant, Message, MeetingPoint, Trip, User } from '@/lib/types';
+import type { Participant, MeetingPoint, Trip, User } from '@/lib/types';
 import { MOCK_DESTINATION, MOCK_USERS } from '@/lib/data';
 import { Header } from '@/components/header';
 import { MapView } from '@/components/map-view';
@@ -9,8 +9,8 @@ import { ParticipantsPanel } from '@/components/participants-panel';
 import { ChatPanel } from '@/components/chat-panel';
 import { Separator } from '@/components/ui/separator';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { useCollection, useDoc, useFirestore, useUser, useMemoFirebase, addDocumentNonBlocking, setDocumentNonBlocking } from '@/firebase';
-import { collection, query, where, doc, getDoc, serverTimestamp, addDoc, orderBy, Timestamp, setDoc, getDocs } from 'firebase/firestore';
+import { useCollection, useDoc, useFirestore, useUser, useMemoFirebase, addDocumentNonBlocking, setDocumentNonBlocking, errorEmitter, FirestorePermissionError } from '@/firebase';
+import { collection, query, where, doc, getDoc, serverTimestamp, orderBy, Timestamp, getDocs } from 'firebase/firestore';
 
 // Hardcoded tripId for demo purposes
 const DEMO_TRIP_ID = 'trip123';
@@ -99,25 +99,38 @@ export function Dashboard() {
       }
       
       const usersRef = collection(firestore, 'users');
-      // Firestore 'in' query is limited to 30 items. For a hackathon this is fine.
       const participantsQuery = query(usersRef, where('id', 'in', participantIds));
-      const snapshot = await getDocs(participantsQuery);
       
-      const participantUsers = snapshot.docs.map(d => d.data() as User);
+      try {
+        const snapshot = await getDocs(participantsQuery);
+        const participantUsers = snapshot.docs.map(d => d.data() as User);
 
-      // Merge with mock data for simulation
-      const allParticipants = MOCK_USERS.map(mockUser => {
-        const firestoreUser = participantUsers.find(u => u.id === mockUser.id);
-        const isCurrentUser = user?.uid === mockUser.id || (user?.uid && mockUser.id === 'user4');
+        // Merge with mock data for simulation
+        const allParticipants = MOCK_USERS.map(mockUser => {
+          const firestoreUser = participantUsers.find(u => u.id === mockUser.id);
+          const isCurrentUser = user?.uid === mockUser.id || (user?.uid && mockUser.id === 'user4');
 
-        if (isCurrentUser && user) {
-             return { ...mockUser, id: user.uid, name: user.displayName || 'You', avatarUrl: user.photoURL || mockUser.avatarUrl };
+          if (isCurrentUser && user) {
+               return { ...mockUser, id: user.uid, name: user.displayName || 'You', avatarUrl: user.photoURL || mockUser.avatarUrl };
+          }
+          return firestoreUser ? { ...mockUser, id: firestoreUser.id, name: firestoreUser.name || mockUser.name, avatarUrl: firestoreUser.avatarUrl || mockUser.avatarUrl } : mockUser;
+        }).filter(p => participantIds.includes(p.id));
+        
+        setParticipants(allParticipants);
+
+      } catch (error: any) {
+        if (error.code === 'permission-denied') {
+            const contextualError = new FirestorePermissionError({
+                operation: 'list',
+                path: 'users',
+            });
+            errorEmitter.emit('permission-error', contextualError);
+        } else {
+            console.error("An unexpected error occurred while fetching participants:", error);
         }
-        return firestoreUser ? { ...mockUser, id: firestoreUser.id, name: firestoreUser.name || mockUser.name, avatarUrl: firestoreUser.avatarUrl || mockUser.avatarUrl } : mockUser;
-      });
-      
-      setParticipants(allParticipants);
-      setIsDataLoading(false);
+      } finally {
+        setIsDataLoading(false);
+      }
     };
 
     fetchParticipants();
