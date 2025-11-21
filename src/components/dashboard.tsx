@@ -10,7 +10,7 @@ import { ChatPanel } from '@/components/chat-panel';
 import { Separator } from '@/components/ui/separator';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useCollection, useFirestore, useUser, useMemoFirebase } from '@/firebase';
-import { collection, query, where, doc, getDoc, serverTimestamp, addDoc, orderBy, Timestamp } from 'firebase/firestore';
+import { collection, query, where, doc, getDoc, serverTimestamp, addDoc, orderBy, Timestamp, setDoc } from 'firebase/firestore';
 
 // Hardcoded tripId for demo purposes
 const DEMO_TRIP_ID = 'trip123';
@@ -55,6 +55,34 @@ export function Dashboard() {
   // Memoize Firestore references to prevent re-renders
   const tripRef = useMemoFirebase(() => firestore ? doc(firestore, 'trips', DEMO_TRIP_ID) : null, [firestore]);
   
+  // Effect to create a demo trip if it doesn't exist
+  useEffect(() => {
+    if (!user || !tripRef || !firestore) return;
+
+    const setupDemoTrip = async () => {
+        const tripSnap = await getDoc(tripRef);
+        if (!tripSnap.exists()) {
+            const newTrip: Trip = {
+                id: DEMO_TRIP_ID,
+                type: 'within-city',
+                destination: MOCK_DESTINATION.name,
+                participantIds: [user.uid],
+                status: 'planned',
+            };
+            await setDoc(tripRef, newTrip);
+        } else {
+            // If the trip exists but user is not a participant, add them.
+            const tripData = tripSnap.data() as Trip;
+            if (!tripData.participantIds.includes(user.uid)) {
+                await setDoc(tripRef, { participantIds: [...tripData.participantIds, user.uid] }, { merge: true });
+            }
+        }
+    };
+
+    setupDemoTrip().catch(console.error);
+
+  }, [user, tripRef, firestore]);
+
   const messagesQuery = useMemoFirebase(() => 
     firestore ? query(collection(firestore, 'trips', DEMO_TRIP_ID, 'messages'), orderBy('timestamp', 'asc')) : null, 
     [firestore]
