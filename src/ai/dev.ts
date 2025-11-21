@@ -1,4 +1,8 @@
 import { config } from 'dotenv';
 config();
 
-import '@/ai/flows/ai-meeting-point-suggestion.ts';
+import { suggestMeetingPoint } from '@/ai/flows/ai-meeting-point-suggestion';
+
+export default {
+  flows: [suggestMeetingPoint],
+};

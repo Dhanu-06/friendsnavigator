@@ -32,9 +32,6 @@ const SuggestMeetingPointOutputSchema = z.object({
 
 export type SuggestMeetingPointOutput = z.infer<typeof SuggestMeetingPointOutputSchema>;
 
-export async function suggestMeetingPoint(input: SuggestMeetingPointInput): Promise<SuggestMeetingPointOutput> {
-  return suggestMeetingPointFlow(input);
-}
 
 const prompt = ai.definePrompt({
   name: 'suggestMeetingPointPrompt',
@@ -53,9 +50,9 @@ Nearby Places: {{{nearbyPlaces}}}
 Suggest a meeting point and explain why it's the best option, considering the locations of the users and nearby places.`,
 });
 
-const suggestMeetingPointFlow = ai.defineFlow(
+export const suggestMeetingPoint = ai.defineFlow(
   {
-    name: 'suggestMeetingPointFlow',
+    name: 'suggestMeetingPoint',
     inputSchema: SuggestMeetingPointInputSchema,
     outputSchema: SuggestMeetingPointOutputSchema,
   },
