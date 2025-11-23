@@ -47,18 +47,23 @@ export function CreateTripDialog({ isOpen, onOpenChange }: CreateTripDialogProps
     }
 
     setCreating(true);
-    try {
-      const tripsCol = collection(firestore, 'trips');
-      const newTrip: Omit<Trip, 'id'> = {
-        name,
-        destination,
-        description: description || '',
-        ownerId: user.uid,
-        participantIds: [user.uid],
-      };
+    
+    const tripsCol = collection(firestore, 'trips');
+    const newTrip: Omit<Trip, 'id'> = {
+      name,
+      destination,
+      description: description || '',
+      ownerId: user.uid,
+      participantIds: [user.uid],
+    };
 
-      const docRef = await addDocumentNonBlocking(tripsCol, newTrip);
+    // The addDocumentNonBlocking helper will catch permission errors
+    // and emit them to the global error listener.
+    const docRef = await addDocumentNonBlocking(tripsCol, newTrip);
       
+    // This part only runs if the document creation was initiated successfully.
+    // The actual write happens in the background.
+    if (docRef) {
       toast({
         title: 'Trip Created!',
         description: `Your trip "${name}" has been created.`,
@@ -70,20 +75,12 @@ export function CreateTripDialog({ isOpen, onOpenChange }: CreateTripDialogProps
       setDescription('');
       
       // Navigate to the new trip page
-      if (docRef) {
-        router.push(`/trips/${docRef.id}`);
-      }
-
-    } catch (error: any) {
-      console.error('Error creating trip:', error);
-      toast({
-        title: 'Error Creating Trip',
-        description: error.message || 'An unknown error occurred.',
-        variant: 'destructive',
-      });
-    } finally {
-      setCreating(false);
+      router.push(`/trips/${docRef.id}`);
     }
+    
+    // We only set creating to false after we attempt the navigation.
+    // If there was an error, the global error overlay would show.
+    setCreating(false);
   };
 
   return (
