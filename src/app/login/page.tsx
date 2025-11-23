@@ -38,13 +38,15 @@ export default function LoginPage() {
 
   const createUserProfile = (userCred: UserCredential, displayName: string) => {
     if (!firestore) return;
+    // Use the user's UID as the document ID.
     const userRef = doc(firestore, 'users', userCred.user.uid);
     const userData = {
       id: userCred.user.uid,
-      name: displayName || userCred.user.displayName,
+      name: displayName || userCred.user.displayName || 'Anonymous',
       email: userCred.user.email,
       avatarUrl: userCred.user.photoURL || `https://picsum.photos/seed/${userCred.user.uid}/40/40`,
     };
+    // Use the non-blocking helper to create the user document.
     setDocumentNonBlocking(userRef, userData, { merge: true });
   }
 
