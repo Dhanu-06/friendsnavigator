@@ -17,6 +17,7 @@ export type Trip = {
 };
 
 export type Location = {
+  id?: string;
   lat: number;
   lng: number;
   lastUpdated: FieldValue | Timestamp | Date;

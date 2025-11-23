@@ -61,11 +61,9 @@ export default function TripPage() {
     setFetchingParticipants(true);
     const fetchParticipantDetails = async () => {
       const participantPromises = tripData.participantIds.map(id => {
-        // Here, 'id' is the UID, which is used as the document ID
         const userDocRef = doc(firestore, 'users', id);
         return getDoc(userDocRef)
           .catch(error => {
-            console.error(`Failed to fetch user ${id}`, error);
             // Emit a detailed error for debugging security rules
             const contextualError = new FirestorePermissionError({
                 operation: 'get',
@@ -104,7 +102,7 @@ export default function TripPage() {
         (position) => {
           const { latitude, longitude } = position.coords;
           const locationRef = doc(firestore, 'trips', tripId, 'locations', user.uid);
-          const newLocation: Location = {
+          const newLocation: Omit<Location, 'id'> = {
             lat: latitude,
             lng: longitude,
             lastUpdated: new Date(),
@@ -124,8 +122,10 @@ export default function TripPage() {
 
 
   const copyJoinCode = () => {
-    navigator.clipboard.writeText(tripId);
-    toast({ title: "Copied!", description: "Trip join code copied to clipboard." });
+    if (typeof tripId === 'string') {
+      navigator.clipboard.writeText(tripId);
+      toast({ title: "Copied!", description: "Trip join code copied to clipboard." });
+    }
   };
   
   const isLoading = isTripLoading || isUserLoading || isFetchingParticipants;
@@ -165,7 +165,7 @@ export default function TripPage() {
              <MapView participants={participants} locations={locationsMap} />
           </section>
         </main>
-        <InviteDialog tripId={tripId} isOpen={isInviteOpen} onOpenChange={setInviteOpen} />
+        {typeof tripId === 'string' && <InviteDialog tripId={tripId} isOpen={isInviteOpen} onOpenChange={setInviteOpen} />}
       </div>
   );
 }
