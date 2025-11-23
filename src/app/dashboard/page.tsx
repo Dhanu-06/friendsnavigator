@@ -6,22 +6,24 @@ import { Header } from '@/components/header';
 import { Dashboard } from '@/components/dashboard';
 import { GOOGLE_MAPS_API_KEY } from '@/lib/config';
 import { APIProvider } from '@vis.gl/react-google-maps';
+import { useEffect } from 'react';
 
 export default function DashboardPage() {
   const { user, isUserLoading } = useUser();
   const router = useRouter();
 
-  if (isUserLoading) {
+  useEffect(() => {
+    if (!isUserLoading && !user) {
+      router.push('/login');
+    }
+  }, [user, isUserLoading, router]);
+
+  if (isUserLoading || !user) {
     return (
       <div className="flex h-screen w-screen items-center justify-center bg-background">
         <p>Loading...</p>
       </div>
     );
-  }
-
-  if (!user) {
-    router.push('/login');
-    return null;
   }
   
   if (!GOOGLE_MAPS_API_KEY) {
