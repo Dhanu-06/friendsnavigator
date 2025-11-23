@@ -114,8 +114,26 @@ export default function TripPage() {
   
   if (!GOOGLE_MAPS_API_KEY) {
     return (
-      <div className="flex h-screen w-screen items-center justify-center bg-background">
-        <p>Google Maps API Key is missing.</p>
+       <div className="flex h-screen w-screen items-center justify-center bg-background p-4">
+        <div className="rounded-lg border bg-card p-6 text-center text-card-foreground shadow-sm max-w-2xl">
+          <h2 className="text-2xl font-bold">Google Maps API Key is Missing</h2>
+          <p className="mt-2 text-muted-foreground">
+            To see the map for your trip, you need to provide a Google Maps API key.
+          </p>
+          <div className="mt-6 rounded-md bg-muted p-4 text-left font-code text-sm">
+            <p className="font-semibold">1. Create a file named <code className="text-primary">.env.local</code> in your project root.</p>
+            <p className="mt-4 font-semibold">2. Add your key like this:</p>
+            <code className="mt-2 block bg-background/50 p-2 rounded">
+              NEXT_PUBLIC_GOOGLE_MAPS_API_KEY=YOUR_API_KEY
+            </code>
+          </div>
+           <p className="mt-4 text-xs text-muted-foreground">
+            You can get a key from the Google Cloud Console. Make sure the "Maps JavaScript API" is enabled.
+          </p>
+          <p className="mt-2 text-xs text-muted-foreground">
+            Please restart your development server after adding the key.
+          </p>
+        </div>
       </div>
     );
   }

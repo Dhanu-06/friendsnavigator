@@ -26,19 +26,23 @@ export default function DashboardPage() {
   
   if (!GOOGLE_MAPS_API_KEY) {
     return (
-      <div className="flex h-screen w-screen items-center justify-center bg-background">
-        <div className="rounded-lg border bg-card p-6 text-center text-card-foreground shadow-sm">
+      <div className="flex h-screen w-screen items-center justify-center bg-background p-4">
+        <div className="rounded-lg border bg-card p-6 text-center text-card-foreground shadow-sm max-w-2xl">
           <h2 className="text-2xl font-bold">Welcome to FriendsNavigator</h2>
           <p className="mt-2 text-muted-foreground">
-            To get started, please provide your Google Maps API key.
+            To see maps, you need to provide a Google Maps API key.
           </p>
-          <div className="mt-4 rounded-md bg-muted p-4 text-left font-code text-sm">
-            <p className="font-semibold">Create a file named `.env.local` in the root of your project and add the following line:</p>
-            <code className="mt-2 block text-primary">
+          <div className="mt-6 rounded-md bg-muted p-4 text-left font-code text-sm">
+            <p className="font-semibold">1. Create a file named <code className="text-primary">.env.local</code> in the root of your project.</p>
+            <p className="mt-4 font-semibold">2. Add the following line to it, replacing <code className="text-primary">YOUR_API_KEY</code> with your actual key:</p>
+            <code className="mt-2 block bg-background/50 p-2 rounded">
               NEXT_PUBLIC_GOOGLE_MAPS_API_KEY=YOUR_API_KEY
             </code>
           </div>
-          <p className="mt-4 text-xs text-muted-foreground">
+           <p className="mt-4 text-xs text-muted-foreground">
+            You can get a key from the Google Cloud Console. Make sure the "Maps JavaScript API" is enabled for your project.
+          </p>
+          <p className="mt-2 text-xs text-muted-foreground">
             After adding the key, please restart your development server.
           </p>
         </div>
