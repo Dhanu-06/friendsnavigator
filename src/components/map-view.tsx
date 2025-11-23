@@ -28,7 +28,7 @@ export function MapView({ participants, locations }: MapViewProps) {
     });
 
   return (
-    <div className="h-full w-full rounded-lg overflow-hidden border">
+    <div className="h-full w-full rounded-lg overflow-hidden">
       <MapClient center={center} zoom={12} markers={markers} />
     </div>
   );

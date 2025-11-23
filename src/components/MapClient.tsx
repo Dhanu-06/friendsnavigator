@@ -1,4 +1,3 @@
-// components/MapClient.tsx
 'use client';
 
 import React, { useEffect, useRef, useState } from 'react';
@@ -112,17 +111,20 @@ export default function MapClient({
     <div style={{ height: '100%', width: '100%', minHeight: 400, position: 'relative' }} className="bg-muted rounded-lg border">
       {error && (
         <div className="absolute inset-0 z-10 p-8 rounded-md bg-destructive/90 text-destructive-foreground flex flex-col items-center justify-center text-center">
-            <h3 className="text-xl font-bold mb-4">Google Maps Error: Invalid API Key</h3>
-            <p className="mb-4">The Google Maps API key is missing or invalid. Please follow these steps to resolve the issue:</p>
-            <ol className="list-decimal list-inside text-left space-y-2 max-w-md">
-                <li>Create a <code className="font-code bg-black/50 px-1 py-0.5 rounded">.env.local</code> file in your project's root directory.</li>
-                <li>Add your API key to the file: <br /><code className="font-code bg-black/50 px-1 py-0.5 rounded">NEXT_PUBLIC_GOOGLE_MAPS_API_KEY=YOUR_KEY_HERE</code></li>
-                <li>In Google Cloud Console, ensure the <strong>"Maps JavaScript API"</strong> is enabled for your key.</li>
-                <li>Add <code className="font-code bg-black/50 px-1 py-0.5 rounded">http://localhost:3000/*</code> to your key's "HTTP referrers" restrictions.</li>
-                <li>Make sure billing is enabled for your Google Cloud project.</li>
-                <li><strong>Restart your development server</strong> after editing <code className="font-code bg-black/50 px-1 py-0.5 rounded">.env.local</code>.</li>
-            </ol>
-            <p className="mt-4 text-sm">{error}</p>
+            <h3 className="text-xl font-bold mb-4">Google Maps Error</h3>
+            <p className="mb-4">The map could not be loaded. This is usually caused by a missing or invalid Google Maps API key.</p>
+            <div className="text-left bg-background text-foreground p-4 rounded-md max-w-lg w-full font-code text-sm">
+                <p className="font-bold mb-2">To fix this:</p>
+                <ol className="list-decimal list-inside space-y-2">
+                    <li>Create a <b className="text-primary">.env.local</b> file in your project's root directory.</li>
+                    <li>Add your API key to the file: <br /><code className="bg-muted px-1 py-0.5 rounded">NEXT_PUBLIC_GOOGLE_MAPS_API_KEY=YOUR_KEY_HERE</code></li>
+                    <li>In Google Cloud Console, ensure the <b className="text-primary">"Maps JavaScript API"</b> is enabled.</li>
+                    <li>Under <b className="text-primary">Application restrictions</b>, add <code className="bg-muted px-1 py-0.5 rounded">http://localhost:3000/*</code> to the "HTTP referrers".</li>
+                    <li>Ensure <b className="text-primary">billing is enabled</b> for your Google Cloud project.</li>
+                    <li><b className="text-primary">Restart your development server</b> after editing the <code className="bg-muted px-1 py-0.5 rounded">.env.local</code> file.</li>
+                </ol>
+            </div>
+            <p className="mt-4 text-sm text-destructive-foreground/80">{error}</p>
         </div>
       )}
       <div ref={mapRef} id="map" style={{ width: '100%', height: '100%' }} />
