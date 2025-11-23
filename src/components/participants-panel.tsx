@@ -24,6 +24,8 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Skeleton } from './ui/skeleton';
 import { transportIcons } from '@/lib/transport';
+import { RideSharing } from './ride-sharing';
+import { MOCK_DESTINATION } from '@/lib/data';
 
 type ParticipantsPanelProps = {
   users: Participant[];
@@ -154,6 +156,13 @@ export function ParticipantsPanel({
       </div>
       
       <Separator />
+
+      {tripType === 'within-city' && (
+        <>
+          <RideSharing destination={MOCK_DESTINATION.location} />
+          <Separator />
+        </>
+      )}
 
       <Button onClick={handleSuggestMeetingPoint} disabled={isAISuggesting || isPanelLoading} className="w-full bg-primary hover:bg-primary/90">
         {isAISuggesting ? (
