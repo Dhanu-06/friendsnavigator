@@ -22,7 +22,8 @@ service cloud.firestore {
       // Other users can get a profile if they share a trip.
       allow get: if isOwner(userId) || 
                   exists(/databases/$(database)/documents/trips/{tripId}
-                    where request.auth.uid in resource.data.participantIds && userId in resource.data.participantIds);
+                    where request.auth.uid in get(/databases/$(database)/documents/trips/{tripId}).data.participantIds && 
+                          userId in get(/databases/$(database)/documents/trips/{tripId}).data.participantIds);
       allow list: if false; // Never allow listing all users.
       allow create: if isOwner(userId);
       allow update, delete: if isOwner(userId);
