@@ -12,8 +12,8 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { useFirestore } from '@/firebase';
-import { collection, query, where, getDocs, doc, updateDoc, arrayUnion } from 'firebase/firestore';
+import { useFirestore, updateDocumentNonBlocking } from '@/firebase';
+import { collection, query, where, getDocs, doc, arrayUnion } from 'firebase/firestore';
 import { useToast } from '@/hooks/use-toast';
 import { Loader } from 'lucide-react';
 
@@ -35,6 +35,7 @@ export function InviteDialog({ tripId, isOpen, onOpenChange }: InviteDialogProps
       return;
     }
     setInviting(true);
+
     try {
       // 1. Find user by email
       const usersRef = collection(firestore, 'users');
@@ -43,15 +44,17 @@ export function InviteDialog({ tripId, isOpen, onOpenChange }: InviteDialogProps
 
       if (querySnapshot.empty) {
         toast({ title: 'User not found', description: 'No user exists with that email address.', variant: 'destructive' });
+        setInviting(false);
         return;
       }
 
       const userDoc = querySnapshot.docs[0];
       const userId = userDoc.id;
-
-      // 2. Add user to trip's participantIds
       const tripRef = doc(firestore, 'trips', tripId);
-      await updateDoc(tripRef, {
+      
+      // 2. Add user to trip's participantIds using the non-blocking helper
+      // This will automatically emit a detailed error on permission failure.
+      updateDocumentNonBlocking(tripRef, {
         participantIds: arrayUnion(userId)
       });
       
@@ -60,8 +63,9 @@ export function InviteDialog({ tripId, isOpen, onOpenChange }: InviteDialogProps
       setEmail('');
 
     } catch (error: any) {
-      console.error('Error inviting user:', error);
-      toast({ title: 'Invitation Failed', description: error.message || 'An unknown error occurred.', variant: 'destructive' });
+      // This will now catch errors from getDocs, but not the updateDoc.
+      console.error('Error finding user to invite:', error);
+      toast({ title: 'Invitation Failed', description: error.message || 'Could not find the user.', variant: 'destructive' });
     } finally {
       setInviting(false);
     }
