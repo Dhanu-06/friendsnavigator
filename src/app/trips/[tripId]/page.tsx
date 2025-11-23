@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { doc, getDoc, collection } from 'firebase/firestore';
+import { doc, getDoc, collection, updateDoc, arrayUnion } from 'firebase/firestore';
 import { useDoc, useCollection, useUser, useFirestore, useMemoFirebase, setDocumentNonBlocking, errorEmitter, FirestorePermissionError } from '@/firebase';
 import type { Trip, User, Location } from '@/lib/types';
 import { Header } from '@/components/header';
@@ -136,31 +136,31 @@ export default function TripPage() {
         <div className="rounded-lg border bg-card p-6 text-center text-card-foreground shadow-sm max-w-2xl">
           <h2 className="text-2xl font-bold">Google Maps API Key Error</h2>
           <p className="mt-2 text-muted-foreground">
-            The Google Maps API key is missing or invalid. Please follow these steps to resolve the issue.
+            The Google Maps API key is missing or invalid, which is causing the map to fail. Please follow these steps carefully to resolve the issue.
           </p>
           <div className="mt-6 rounded-md bg-muted p-4 text-left font-code text-sm space-y-4">
             <div>
               <p className="font-semibold">1. Create a file named <code className="text-primary">.env.local</code></p>
-              <p className="text-xs text-muted-foreground">This file should be in the root directory of your project.</p>
+              <p className="text-xs text-muted-foreground">This file must be in the root directory of your project (the same level as `package.json`).</p>
             </div>
             <div>
               <p className="font-semibold">2. Add your API key to the file:</p>
               <code className="mt-2 block bg-background/50 p-2 rounded">
                 NEXT_PUBLIC_GOOGLE_MAPS_API_KEY=YOUR_API_KEY_HERE
               </code>
-               <p className="text-xs text-muted-foreground mt-1">Make sure the variable starts with `NEXT_PUBLIC_`.</p>
+               <p className="text-xs text-muted-foreground mt-1">Replace `YOUR_API_KEY_HERE` with your actual key. The variable name must start with `NEXT_PUBLIC_`.</p>
             </div>
              <div>
               <p className="font-semibold">3. Check your Google Cloud Console:</p>
-               <ul className="list-disc list-inside mt-2 pl-2 text-xs font-sans">
+               <ul className="list-disc list-inside mt-2 pl-2 text-xs font-sans space-y-1">
                   <li>Ensure the <span className="font-bold">Maps JavaScript API</span> is enabled for your project.</li>
-                  <li>Ensure your project is linked to a valid <span className="font-bold">billing account</span>.</li>
-                  <li>Under <span className="font-bold">Application restrictions</span>, if you are using HTTP referrers, make sure to add your development URL (e.g., `http://localhost:3000/*`).</li>
+                  <li>Ensure your project is linked to a valid <span className="font-bold">billing account</span>. Google Maps requires this for all projects.</li>
+                  <li>Under <span className="font-bold">Application restrictions</span>, if you are using "HTTP referrers", make sure to add your development URL (e.g., `http://localhost:3000/*`). For testing, you can temporarily set it to "None".</li>
                </ul>
             </div>
           </div>
-           <p className="mt-4 text-xs text-muted-foreground">
-            After editing the `.env.local` file, you **must restart** your development server for the changes to take effect.
+           <p className="mt-4 text-sm text-red-500 font-bold">
+            IMPORTANT: You must restart your development server after creating or editing the `.env.local` file for the changes to apply.
           </p>
         </div>
       </div>
