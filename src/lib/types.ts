@@ -14,6 +14,7 @@ export type Trip = {
   description?: string;
   ownerId: string;
   participantIds: string[];
+  tripType: 'within-city' | 'out-of-city';
 };
 
 export type Location = {

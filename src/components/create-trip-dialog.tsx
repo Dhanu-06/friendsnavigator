@@ -17,8 +17,10 @@ import { useUser, useFirestore, addDocumentNonBlocking } from '@/firebase';
 import { collection } from 'firebase/firestore';
 import { useToast } from '@/hooks/use-toast';
 import type { Trip } from '@/lib/types';
-import { Loader } from 'lucide-react';
+import { Loader, Building, Mountain } from 'lucide-react';
 import { useRouter } from 'next/navigation';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { cn } from '@/lib/utils';
 
 type CreateTripDialogProps = {
   isOpen: boolean;
@@ -29,12 +31,20 @@ export function CreateTripDialog({ isOpen, onOpenChange }: CreateTripDialogProps
   const [name, setName] = useState('');
   const [destination, setDestination] = useState('');
   const [description, setDescription] = useState('');
+  const [tripType, setTripType] = useState<'within-city' | 'out-of-city' | undefined>();
   const [isCreating, setCreating] = useState(false);
 
   const { user } = useUser();
   const firestore = useFirestore();
   const { toast } = useToast();
   const router = useRouter();
+
+  const resetForm = () => {
+    setName('');
+    setDestination('');
+    setDescription('');
+    setTripType(undefined);
+  }
 
   const handleCreateTrip = async () => {
     if (!user || !firestore || !name || !destination) {
@@ -44,6 +54,14 @@ export function CreateTripDialog({ isOpen, onOpenChange }: CreateTripDialogProps
         variant: 'destructive',
       });
       return;
+    }
+    if (!tripType) {
+        toast({
+          title: 'Missing Information',
+          description: 'Please select a trip type.',
+          variant: 'destructive',
+        });
+        return;
     }
 
     setCreating(true);
@@ -55,14 +73,11 @@ export function CreateTripDialog({ isOpen, onOpenChange }: CreateTripDialogProps
       description: description || '',
       ownerId: user.uid,
       participantIds: [user.uid],
+      tripType: tripType,
     };
 
-    // The addDocumentNonBlocking helper will catch permission errors
-    // and emit them to the global error listener.
     const docRef = await addDocumentNonBlocking(tripsCol, newTrip);
       
-    // This part only runs if the document creation was initiated successfully.
-    // The actual write happens in the background.
     if (docRef) {
       toast({
         title: 'Trip Created!',
@@ -70,65 +85,88 @@ export function CreateTripDialog({ isOpen, onOpenChange }: CreateTripDialogProps
       });
 
       onOpenChange(false);
-      setName('');
-      setDestination('');
-      setDescription('');
+      resetForm();
       
-      // Navigate to the new trip page
       router.push(`/trips/${docRef.id}`);
     }
     
-    // We only set creating to false after we attempt the navigation.
-    // If there was an error, the global error overlay would show.
     setCreating(false);
   };
 
   return (
-    <Dialog open={isOpen} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[425px]">
+    <Dialog open={isOpen} onOpenChange={(open) => {
+        if (!open) resetForm();
+        onOpenChange(open);
+    }}>
+      <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Create a New Trip</DialogTitle>
           <DialogDescription>
             Plan your next adventure. Fill in the details below to get started.
           </DialogDescription>
         </DialogHeader>
-        <div className="grid gap-4 py-4">
-          <div className="grid grid-cols-4 items-center gap-4">
-            <Label htmlFor="name" className="text-right">
-              Trip Name
-            </Label>
-            <Input
-              id="name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              className="col-span-3"
-              placeholder="e.g., Weekend Getaway"
-            />
-          </div>
-          <div className="grid grid-cols-4 items-center gap-4">
-            <Label htmlFor="destination" className="text-right">
-              Destination
-            </Label>
-            <Input
-              id="destination"
-              value={destination}
-              onChange={(e) => setDestination(e.target.value)}
-              className="col-span-3"
-              placeholder="e.g., San Francisco"
-            />
-          </div>
-          <div className="grid grid-cols-4 items-center gap-4">
-            <Label htmlFor="description" className="text-right">
-              Description
-            </Label>
-            <Textarea
-              id="description"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              className="col-span-3"
-              placeholder="Optional: What's the plan?"
-            />
-          </div>
+        <div className="grid gap-6 py-4">
+            <div>
+                <Label className="mb-3 block">Trip Type</Label>
+                <RadioGroup
+                    value={tripType}
+                    onValueChange={(value: 'within-city' | 'out-of-city') => setTripType(value)}
+                    className="grid grid-cols-2 gap-4"
+                >
+                    <Label
+                        htmlFor="within-city"
+                        className={cn(
+                        "flex flex-col items-center justify-between rounded-md border-2 border-muted bg-popover p-4 hover:bg-accent hover:text-accent-foreground cursor-pointer",
+                        tripType === 'within-city' && "border-primary"
+                        )}
+                    >
+                        <RadioGroupItem value="within-city" id="within-city" className="sr-only" />
+                        <Building className="mb-3 h-6 w-6" />
+                        Within City
+                        <span className="text-xs text-muted-foreground mt-1 text-center">Quick city trips, meetups, and local events.</span>
+                    </Label>
+                    <Label
+                        htmlFor="out-of-city"
+                        className={cn(
+                        "flex flex-col items-center justify-between rounded-md border-2 border-muted bg-popover p-4 hover:bg-accent hover:text-accent-foreground cursor-pointer",
+                        tripType === 'out-of-city' && "border-primary"
+                        )}
+                    >
+                        <RadioGroupItem value="out-of-city" id="out-of-city" className="sr-only" />
+                        <Mountain className="mb-3 h-6 w-6" />
+                        Out of City
+                         <span className="text-xs text-muted-foreground mt-1 text-center">Road trips, weekend getaways, and long-distance travel.</span>
+                    </Label>
+                </RadioGroup>
+            </div>
+            
+            <div className="grid gap-2">
+                <Label htmlFor="name">Trip Name</Label>
+                <Input
+                id="name"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="e.g., Weekend Getaway"
+                />
+            </div>
+            <div className="grid gap-2">
+                <Label htmlFor="destination">Destination</Label>
+                <Input
+                id="destination"
+                value={destination}
+                onChange={(e) => setDestination(e.target.value)}
+                placeholder="e.g., San Francisco"
+                />
+            </div>
+            <div className="grid gap-2">
+                <Label htmlFor="description">Description (Optional)</Label>
+                <Textarea
+                id="description"
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                placeholder="What's the plan?"
+                />
+            </div>
         </div>
         <DialogFooter>
           <Button onClick={handleCreateTrip} disabled={isCreating}>

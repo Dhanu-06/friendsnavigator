@@ -57,9 +57,14 @@
           "items": {
             "type": "string"
           }
+        },
+        "tripType": {
+          "type": "string",
+          "description": "The type of trip, either 'within-city' or 'out-of-city'.",
+          "enum": ["within-city", "out-of-city"]
         }
       },
-      "required": ["id", "name", "destination", "ownerId", "participantIds"]
+      "required": ["id", "name", "destination", "ownerId", "participantIds", "tripType"]
     },
     "Location": {
       "title": "Location",
