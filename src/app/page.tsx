@@ -12,13 +12,20 @@ export default function Home() {
   const { user, isUserLoading } = useUser();
   const router = useRouter();
 
+  // For demo purposes, if a user is logged in, send them to the dashboard.
   useEffect(() => {
-    // For demo purposes, if a user is logged in, send them to the dashboard.
     if (!isUserLoading && user) {
       router.push('/dashboard');
     }
   }, [user, isUserLoading, router]);
 
+  if (isUserLoading || user) {
+    return (
+      <div className="flex h-screen w-screen items-center justify-center bg-background">
+        <p>Loading...</p>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col min-h-screen bg-background text-foreground">
