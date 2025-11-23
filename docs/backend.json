@@ -1,127 +1,90 @@
 {
   "entities": {
     "User": {
-      "$schema": "http://json-schema.org/draft-07/schema#",
       "title": "User",
       "type": "object",
-      "description": "Represents a user in the TripMate application.",
+      "description": "Represents a user in the FriendsNavigator application.",
       "properties": {
         "id": {
           "type": "string",
-          "description": "Unique identifier for the User entity."
+          "description": "Unique identifier for the User entity (matches Firebase Auth UID)."
         },
         "name": {
           "type": "string",
-          "description": "User's full name."
+          "description": "User's display name."
         },
         "email": {
           "type": "string",
           "description": "User's email address.",
           "format": "email"
         },
-        "avatar": {
+        "avatarUrl": {
           "type": "string",
           "description": "URL of the user's avatar image.",
           "format": "uri"
-        },
-        "lastLocation": {
-          "type": "string",
-          "description": "Last known location of the user. This could be a GeoJSON string or similar.",
-          "format": "string"
-        },
-        "transportMode": {
-          "type": "string",
-          "description": "User's current mode of transportation (e.g., car, bus, walking)."
         }
       },
-      "required": [
-        "id",
-        "name",
-        "email"
-      ]
+      "required": ["id", "email"]
     },
     "Trip": {
-      "$schema": "http://json-schema.org/draft-07/schema#",
       "title": "Trip",
       "type": "object",
-      "description": "Represents a trip organized within the TripMate application.",
+      "description": "Represents a trip within the FriendsNavigator application.",
       "properties": {
         "id": {
           "type": "string",
           "description": "Unique identifier for the Trip entity."
         },
-        "type": {
+        "name": {
           "type": "string",
-          "description": "Type of trip (city or outstation)."
+          "description": "The name of the trip."
         },
         "destination": {
           "type": "string",
-          "description": "Destination of the trip."
+          "description": "The destination of the trip."
+        },
+        "description": {
+          "type": "string",
+          "description": "An optional description for the trip."
+        },
+        "ownerId": {
+          "type": "string",
+          "description": "The UID of the user who created the trip."
         },
         "participantIds": {
           "type": "array",
-          "description": "References to Users. (Relationship: Trip 1:N User)",
+          "description": "An array of user UIDs who are part of this trip.",
           "items": {
             "type": "string"
           }
-        },
-        "meetingPoint": {
-          "type": "string",
-          "description": "Suggested meeting point for the trip (e.g., coordinates or place name)."
-        },
-        "status": {
-          "type": "string",
-          "description": "Current status of the trip (e.g., planned, in progress, completed)."
         }
       },
-      "required": [
-        "id",
-        "type",
-        "destination"
-      ]
+      "required": ["id", "name", "destination", "ownerId", "participantIds"]
     },
-    "Message": {
-      "$schema": "http://json-schema.org/draft-07/schema#",
-      "title": "Message",
+    "Location": {
+      "title": "Location",
       "type": "object",
-      "description": "Represents a message within a trip's group chat.",
+      "description": "Represents a user's live location for a specific trip.",
       "properties": {
-        "id": {
-          "type": "string",
-          "description": "Unique identifier for the Message entity."
+        "lat": {
+          "type": "number",
+          "description": "The latitude of the user's location."
         },
-        "tripId": {
-          "type": "string",
-          "description": "Reference to Trip. (Relationship: Trip 1:N Message)"
+        "lng": {
+          "type": "number",
+          "description": "The longitude of the user's location."
         },
-        "senderId": {
+        "lastUpdated": {
           "type": "string",
-          "description": "Reference to User. (Relationship: User 1:N Message).  The user ID of the message sender."
-        },
-        "text": {
-          "type": "string",
-          "description": "Content of the message."
-        },
-        "timestamp": {
-          "type": "string",
-          "description": "Timestamp of when the message was sent.",
-          "format": "date-time"
+          "format": "date-time",
+          "description": "Timestamp of the last location update."
         }
       },
-      "required": [
-        "id",
-        "tripId",
-        "senderId",
-        "text",
-        "timestamp"
-      ]
+      "required": ["lat", "lng", "lastUpdated"]
     }
   },
   "auth": {
-    "providers": [
-      "google",
-      "password"
-    ]
+    "providers": ["password", "google"]
   },
   "firestore": {
     "structure": [
@@ -129,55 +92,26 @@
         "path": "/users/{userId}",
         "definition": {
           "entityName": "User",
-          "schema": {
-            "$ref": "#/backend/entities/User"
-          },
-          "description": "Stores user profile information. Path-based ownership ensures only the user can access their own data.",
-          "params": [
-            {
-              "name": "userId",
-              "description": "The unique ID of the user."
-            }
-          ]
+          "schema": { "$ref": "#/backend/entities/User" },
+          "description": "Stores user profile information. Only the user themselves can write to it. Other participants of a shared trip can read it."
         }
       },
       {
         "path": "/trips/{tripId}",
         "definition": {
           "entityName": "Trip",
-          "schema": {
-            "$ref": "#/backend/entities/Trip"
-          },
-          "description": "Stores trip information. Includes denormalized 'participantIds' array for authorization independence.  This enables secure list operations for all trips the user participates in.",
-          "params": [
-            {
-              "name": "tripId",
-              "description": "The unique ID of the trip."
-            }
-          ]
+          "schema": { "$ref": "#/backend/entities/Trip" },
+          "description": "Stores core information about a trip. Participants can read/write."
         }
       },
       {
-        "path": "/trips/{tripId}/messages/{messageId}",
+        "path": "/trips/{tripId}/locations/{userId}",
         "definition": {
-          "entityName": "Message",
-          "schema": {
-            "$ref": "#/backend/entities/Message"
-          },
-          "description": "Stores messages associated with a specific trip. Inherits authorization from the parent trip document via path. Ensures users can only access messages for trips they are participants in.",
-          "params": [
-            {
-              "name": "tripId",
-              "description": "The unique ID of the trip."
-            },
-            {
-              "name": "messageId",
-              "description": "The unique ID of the message."
-            }
-          ]
+          "entityName": "Location",
+          "schema": { "$ref": "#/backend/entities/Location" },
+          "description": "Stores the live location of a specific user for a given trip. Only the user can update their own location. Other trip participants can read it."
         }
       }
-    ],
-    "reasoning": "The Firestore structure is designed to facilitate a real-time, collaborative trip-planning application. It prioritizes authorization independence and simplifies security rules through denormalization. User data is stored under `/users/{userId}` for private data access. Trips are stored under `/trips/{tripId}`, with participants managed via a `participantIds` array.  The structure enables QAPs by ensuring that listing trips only returns those the user is a participant in, avoiding filtering in the rules.  Messages are stored in a subcollection `/trips/{tripId}/messages/{messageId}` enabling authorized access to chat history. The `participantIds` array in the `trips` document is the denormalized authorization context. It contains the UIDs of all users authorized to view and modify the trip data, thus removing the need for `get()` calls in the security rules."
+    ]
   }
 }

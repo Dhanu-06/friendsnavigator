@@ -4,8 +4,8 @@ import { Toaster } from '@/components/ui/toaster';
 import { FirebaseClientProvider } from '@/firebase';
 
 export const metadata: Metadata = {
-  title: 'Tripmate',
-  description: 'Coordinate trips with your friends seamlessly.',
+  title: 'FriendsNavigator',
+  description: 'Navigate with your friends in real-time.',
 };
 
 export default function RootLayout({

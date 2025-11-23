@@ -1,15 +1,34 @@
 'use client';
 
+import { useRouter } from 'next/navigation';
+import { useUser } from '@/firebase';
+import { Header } from '@/components/header';
 import { Dashboard } from '@/components/dashboard';
 import { GOOGLE_MAPS_API_KEY } from '@/lib/config';
 import { APIProvider } from '@vis.gl/react-google-maps';
 
 export default function DashboardPage() {
+  const { user, isUserLoading } = useUser();
+  const router = useRouter();
+
+  if (isUserLoading) {
+    return (
+      <div className="flex h-screen w-screen items-center justify-center bg-background">
+        <p>Loading...</p>
+      </div>
+    );
+  }
+
+  if (!user) {
+    router.push('/login');
+    return null;
+  }
+  
   if (!GOOGLE_MAPS_API_KEY) {
     return (
       <div className="flex h-screen w-screen items-center justify-center bg-background">
         <div className="rounded-lg border bg-card p-6 text-center text-card-foreground shadow-sm">
-          <h2 className="text-2xl font-bold">Welcome to Tripmate</h2>
+          <h2 className="text-2xl font-bold">Welcome to FriendsNavigator</h2>
           <p className="mt-2 text-muted-foreground">
             To get started, please provide your Google Maps API key.
           </p>
@@ -28,8 +47,13 @@ export default function DashboardPage() {
   }
 
   return (
-    <APIProvider apiKey={GOOGLE_MAPS_API_KEY}>
-      <Dashboard />
+     <APIProvider apiKey={GOOGLE_MAPS_API_KEY}>
+      <div className="flex flex-col h-screen bg-background text-foreground overflow-hidden">
+        <Header />
+        <main className="flex-1 overflow-y-auto p-4 md:p-8">
+          <Dashboard />
+        </main>
+      </div>
     </APIProvider>
   );
 }
