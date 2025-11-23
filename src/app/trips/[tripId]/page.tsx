@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { doc, getDoc, collection, updateDoc, arrayUnion } from 'firebase/firestore';
+import { doc, getDoc, collection } from 'firebase/firestore';
 import { useDoc, useCollection, useUser, useFirestore, useMemoFirebase, setDocumentNonBlocking, errorEmitter, FirestorePermissionError } from '@/firebase';
 import type { Trip, User, Location } from '@/lib/types';
 import { Header } from '@/components/header';
