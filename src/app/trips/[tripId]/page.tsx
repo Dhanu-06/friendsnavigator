@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { doc, getDoc, collection } from 'firebase/firestore';
-import { useDoc, useCollection, useUser, useFirestore, useMemoFirebase, setDocumentNonBlocking } from '@/firebase';
+import { useDoc, useCollection, useUser, useFirestore, useMemoFirebase, setDocumentNonBlocking, errorEmitter, FirestorePermissionError } from '@/firebase';
 import type { Trip, User, Location } from '@/lib/types';
 import { Header } from '@/components/header';
 import { MapView } from '@/components/map-view';
@@ -62,15 +62,32 @@ export default function TripPage() {
 
     setFetchingParticipants(true);
     const fetchParticipantDetails = async () => {
-      const participantPromises = tripData.participantIds.map(id => getDoc(doc(firestore, 'users', id)));
+      const participantPromises = tripData.participantIds.map(id => {
+        const userDocRef = doc(firestore, 'users', id);
+        return getDoc(userDocRef)
+          .catch(error => {
+            console.error(`Failed to fetch user ${id}`, error);
+            // Emit a detailed error for debugging security rules
+            const contextualError = new FirestorePermissionError({
+                operation: 'get',
+                path: `users/${id}`,
+            });
+            errorEmitter.emit('permission-error', contextualError);
+            // Return null so Promise.all doesn't fail completely
+            return null; 
+          });
+      });
+
       try {
         const participantSnaps = await Promise.all(participantPromises);
         const participantUsers = participantSnaps
-          .filter(snap => snap.exists())
+          .filter((snap): snap is import('firebase/firestore').DocumentSnapshot => snap !== null && snap.exists())
           .map(snap => snap.data() as User);
         setParticipants(participantUsers);
       } catch (error) {
-        console.error("Error fetching participant details:", error);
+        // This outer catch is now less likely to be hit for permission errors,
+        // but is kept as a fallback for other potential issues with Promise.all
+        console.error("Error processing participant details:", error);
         toast({ title: "Error", description: "Could not load participant information." });
       } finally {
         setFetchingParticipants(false);
