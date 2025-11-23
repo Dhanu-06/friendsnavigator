@@ -10,9 +10,11 @@ import { MapView } from '@/components/map-view';
 import { ParticipantsList } from '@/components/participants-list';
 import { InviteDialog } from '@/components/invite-dialog';
 import { Button } from '@/components/ui/button';
-import { UserPlus, Copy } from 'lucide-react';
+import { UserPlus, Copy, MessageSquare, Map } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { ChatPanel } from '@/components/chat-panel';
 
 export default function TripPage() {
   const { tripId } = useParams() as { tripId: string };
@@ -133,9 +135,28 @@ export default function TripPage() {
   return (
       <div className="flex flex-col h-screen bg-background text-foreground overflow-hidden">
         <Header />
-        <main className="flex-1 grid grid-cols-1 md:grid-cols-[380px_1fr] xl:grid-cols-[420px_1fr] overflow-hidden">
-          {/* Left Panel */}
-          <aside className="border-r border-border flex flex-col h-full p-4 gap-4">
+        <main className="flex-1 grid grid-cols-1 md:grid-cols-[1fr_380px] xl:grid-cols-[1fr_420px] overflow-hidden">
+          
+          {/* Left Panel (Map & Chat) */}
+           <section className="bg-muted/30 h-full flex flex-col">
+             <Tabs defaultValue="map" className="flex-1 flex flex-col overflow-hidden">
+                <div className="p-4 border-b">
+                    <TabsList>
+                        <TabsTrigger value="map"><Map className="mr-2"/> Map</TabsTrigger>
+                        <TabsTrigger value="chat"><MessageSquare className="mr-2"/> Chat</TabsTrigger>
+                    </TabsList>
+                </div>
+                <TabsContent value="map" className="flex-1 overflow-auto p-4">
+                     <MapView participants={participants} locations={locationsMap} />
+                </TabsContent>
+                <TabsContent value="chat" className="flex-1 flex flex-col overflow-auto">
+                    <ChatPanel currentUser={user} participants={participants} />
+                </TabsContent>
+            </Tabs>
+          </section>
+
+          {/* Right Panel */}
+          <aside className="border-l border-border flex flex-col h-full p-4 gap-4 overflow-y-auto">
             {isLoading ? (
               <>
                 <Skeleton className="h-8 w-3/4" />
@@ -160,10 +181,6 @@ export default function TripPage() {
             <ParticipantsList participants={participants} isLoading={isLoading} />
           </aside>
           
-          {/* Right Panel (Map) */}
-          <section className="bg-muted/30 h-full p-4">
-             <MapView participants={participants} locations={locationsMap} />
-          </section>
         </main>
         {typeof tripId === 'string' && <InviteDialog tripId={tripId} isOpen={isInviteOpen} onOpenChange={setInviteOpen} />}
       </div>
