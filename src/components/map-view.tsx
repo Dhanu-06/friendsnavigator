@@ -9,7 +9,7 @@ type MapViewProps = {
   locations: Record<string, Location>;
 };
 
-export function MapView(props: any) {
+export function MapView(props: MapViewProps) {
   return (
     <div className="w-full h-full">
       <MapClient {...props} />
