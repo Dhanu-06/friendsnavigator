@@ -23,7 +23,7 @@ service cloud.firestore {
       allow get: if isOwner(userId) || 
                   exists(/databases/$(database)/documents/trips/{tripId}
                     where request.auth.uid in get(/databases/$(database)/documents/trips/$(tripId)).data.participantIds && 
-                          userId in get(/databases/$(database)/documents/trips/$(tripId)).data.participantIds);
+                          userId in get(/databases/$(database)/documents/trips/{tripId)).data.participantIds);
       allow list: if false; // Never allow listing all users.
       // A user can create their own profile document.
       allow create: if isOwner(userId);
@@ -56,11 +56,13 @@ service cloud.firestore {
       // Participants subcollection
       match /participants/{userId} {
         // Any trip participant can read the status of any other participant.
-        allow get, list: if isTripParticipant(tripId);
+        allow get: if isTripParticipant(tripId);
         // A user can only create or update their own participant document.
         allow create, update: if isOwner(userId);
         // Deletion might be restricted to the trip owner. For now, same as write.
         allow delete: if isOwner(userId);
+        // Disallow listing all participants at once for security.
+        allow list: if false;
       }
     }
   }
