@@ -34,7 +34,13 @@ export default function MapClient({
     if (typeof window === 'undefined') return;
     if (!mapContainerRef.current) return;
 
-    const apiKey = process.env.NEXT_PUBLIC_TOMTOM_API_KEY;
+    // --- TEMPORARY FIX & DEBUGGING ---
+    // Using a hardcoded key as a fallback to get the map working in environments where .env.local might not be picked up.
+    // The proper fix is to ensure NEXT_PUBLIC_TOMTOM_API_KEY is in a .env.local file in the workspace root.
+    console.log('TT KEY IN BROWSER:', process.env.NEXT_PUBLIC_TOMTOM_API_KEY);
+    const apiKey = process.env.NEXT_PUBLIC_TOMTOM_API_KEY ?? 'wAMXwpHDPRmHAeJ7OTyyfqYFM20HE4IF';
+    // ------------------------------------
+
     if (!apiKey) {
       const msg =
         'TomTom API key missing. Add NEXT_PUBLIC_TOMTOM_API_KEY to .env.local and restart `npm run dev`.';
@@ -94,7 +100,7 @@ export default function MapClient({
     const friends: FriendLocation[] = participants
         .map(p => {
             const loc = locations[p.id];
-            if (!loc) return null;
+            if (!loc || typeof loc.lat !== 'number' || typeof loc.lng !== 'number') return null;
             return {
                 id: p.id,
                 name: p.name,
