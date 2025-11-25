@@ -1,9 +1,6 @@
 'use client';
 
 import React from 'react';
-import type { Map, Marker, Popup } from '@tomtom-international/web-sdk-maps';
-// TomTom CSS must be imported at top-level in a client component
-import '@tomtom-international/web-sdk-maps/dist/maps.css';
 
 type FriendLocation = {
   id: string;
