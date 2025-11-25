@@ -10,6 +10,7 @@ export function initializeFirebase() {
   const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
   const firestore = initializeFirestore(app, {});
 
+  // This check MUST be inside the initialize function and should only be 'true'
   if (process.env.NEXT_PUBLIC_USE_FIRESTORE_EMULATOR === 'true') {
       // It's safe to call this multiple times. It only connects once.
       connectFirestoreEmulator(firestore, '127.0.0.1', 8080);
@@ -19,18 +20,6 @@ export function initializeFirebase() {
     firebaseApp: app,
     auth: getAuth(app),
     firestore: firestore,
-  };
-}
-
-export function getSdks(firebaseApp: FirebaseApp) {
-  const firestore = getFirestore(firebaseApp);
-  if (process.env.NEXT_PUBLIC_USE_FIRESTORE_EMULATOR === 'true') {
-    connectFirestoreEmulator(firestore, '127.0.0.1', 8080);
-  }
-  return {
-    firebaseApp,
-    auth: getAuth(firebaseApp),
-    firestore
   };
 }
 
