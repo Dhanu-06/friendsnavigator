@@ -123,11 +123,12 @@ export default function TripPage() {
 
   // Update user's location periodically & create participant doc if it doesn't exist
   useEffect(() => {
-    if (!user || !firestore || !tripId || areParticipantsLoading) return;
+    if (!user || !firestore || !tripId) return;
 
     const updateLocation = () => {
-        // We check participantsData which is now loaded safely.
-        const myParticipantDoc = participantsData?.find(p => p.id === user.uid);
+      // Check for participant doc within the interval function to get the latest data
+      const myParticipantDoc = participantsData?.find(p => p.id === user.uid);
+      
       navigator.geolocation.getCurrentPosition(
         (position) => {
           const { latitude, longitude } = position.coords;
@@ -169,7 +170,7 @@ export default function TripPage() {
     const intervalId = setInterval(updateLocation, 15000); // Update every 15 seconds
 
     return () => clearInterval(intervalId);
-  }, [user, firestore, tripId, areParticipantsLoading, participantsData]);
+  }, [user, firestore, tripId, participantsData]);
 
 
   const copyJoinCode = () => {
