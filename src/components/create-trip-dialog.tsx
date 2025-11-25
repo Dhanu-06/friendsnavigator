@@ -13,10 +13,10 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { useUser, useFirestore, addDocumentNonBlocking } from '@/firebase';
-import { collection } from 'firebase/firestore';
+import { useUser, useFirestore, addDocumentNonBlocking, setDocumentNonBlocking } from '@/firebase';
+import { collection, doc } from 'firebase/firestore';
 import { useToast } from '@/hooks/use-toast';
-import type { Trip } from '@/lib/types';
+import type { Trip, Participant } from '@/lib/types';
 import { Loader, Building, Mountain } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
@@ -66,31 +66,53 @@ export function CreateTripDialog({ isOpen, onOpenChange }: CreateTripDialogProps
 
     setCreating(true);
     
-    const tripsCol = collection(firestore, 'trips');
-    const newTrip: Omit<Trip, 'id'> = {
+    // Mock destination coords for now
+    const newTripData: Omit<Trip, 'id'> = {
       name,
-      destination,
+      destination: {
+        name: destination,
+        lat: 12.9716, // Example: Bangalore lat
+        lng: 77.5946  // Example: Bangalore lng
+      },
       description: description || '',
       ownerId: user.uid,
       participantIds: [user.uid],
       tripType: tripType,
     };
 
-    const docRef = await addDocumentNonBlocking(tripsCol, newTrip);
-      
-    if (docRef) {
-      toast({
-        title: 'Trip Created!',
-        description: `Your trip "${name}" has been created.`,
-      });
+    try {
+      const tripsCol = collection(firestore, 'trips');
+      const newTripRef = await addDocumentNonBlocking(tripsCol, newTripData);
 
-      onOpenChange(false);
-      resetForm();
-      
-      router.push(`/trips/${docRef.id}`);
+      if (newTripRef) {
+        // Also create the initial participant document for the owner
+        const participantRef = doc(firestore, 'trips', newTripRef.id, 'participants', user.uid);
+        const initialParticipant: Participant = {
+          id: user.uid,
+          name: user.displayName || 'Anonymous',
+          avatarUrl: user.photoURL || `https://picsum.photos/seed/${user.uid}/40/40`,
+        };
+        setDocumentNonBlocking(participantRef, initialParticipant, { merge: true });
+
+        toast({
+          title: 'Trip Created!',
+          description: `Your trip "${name}" has been created.`,
+        });
+
+        onOpenChange(false);
+        resetForm();
+        
+        router.push(`/trips/${newTripRef.id}`);
+      }
+    } catch (error) {
+       toast({
+        title: 'Error Creating Trip',
+        description: 'An unexpected error occurred. Please try again.',
+        variant: 'destructive',
+      });
+    } finally {
+       setCreating(false);
     }
-    
-    setCreating(false);
   };
 
   return (
@@ -155,7 +177,7 @@ export function CreateTripDialog({ isOpen, onOpenChange }: CreateTripDialogProps
                 id="destination"
                 value={destination}
                 onChange={(e) => setDestination(e.target.value)}
-                placeholder="e.g., San Francisco"
+                placeholder="e.g., Orion Mall"
                 />
             </div>
             <div className="grid gap-2">

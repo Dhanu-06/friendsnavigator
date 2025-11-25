@@ -40,8 +40,14 @@
           "description": "The name of the trip."
         },
         "destination": {
-          "type": "string",
-          "description": "The destination of the trip."
+          "type": "object",
+          "description": "The destination of the trip.",
+          "properties": {
+            "name": { "type": "string" },
+            "lat": { "type": "number" },
+            "lng": { "type": "number" }
+          },
+          "required": ["name", "lat", "lng"]
         },
         "description": {
           "type": "string",
@@ -86,6 +92,55 @@
         }
       },
       "required": ["lat", "lng", "lastUpdated"]
+    },
+     "Participant": {
+      "title": "Participant",
+      "type": "object",
+      "description": "Stores a user's status and travel choices for a specific trip.",
+      "properties": {
+        "id": { "type": "string", "description": "Matches the user's UID." },
+        "name": { "type": "string" },
+        "avatarUrl": { "type": "string", "format": "uri" },
+        "currentLocation": {
+          "type": "object",
+          "properties": {
+            "lat": { "type": "number" },
+            "lng": { "type": "number" }
+          }
+        },
+        "preference": {
+          "type": "string",
+          "enum": ["fastest", "cheapest", "comfortable"]
+        },
+        "selectedMode": {
+          "type": "string",
+          "enum": ["ola", "uber", "rapido", "metro", "bmtc", "walk"]
+        },
+        "suggestion": {
+          "type": "object",
+          "properties": {
+            "recommendedMode": { "type": "string" },
+            "options": {
+              "type": "array",
+              "items": { "$ref": "#/backend/entities/ModeOption" }
+            },
+            "lastCalculatedAt": { "type": "string", "format": "date-time" }
+          }
+        }
+      },
+      "required": ["id", "name", "avatarUrl"]
+    },
+    "ModeOption": {
+      "title": "Mode Option",
+      "type": "object",
+      "description": "Represents a calculated travel option.",
+      "properties": {
+        "mode": { "type": "string" },
+        "etaMinutes": { "type": "number" },
+        "costEstimate": { "type": "number" },
+        "explanation": { "type": "string" }
+      },
+      "required": ["mode", "etaMinutes", "costEstimate"]
     }
   },
   "auth": {
@@ -115,6 +170,14 @@
           "entityName": "Location",
           "schema": { "$ref": "#/backend/entities/Location" },
           "description": "Stores the live location of a specific user for a given trip. Only the user can update their own location. Other trip participants can read it."
+        }
+      },
+       {
+        "path": "/trips/{tripId}/participants/{userId}",
+        "definition": {
+          "entityName": "Participant",
+          "schema": { "$ref": "#/backend/entities/Participant" },
+          "description": "Stores a user's status and travel choices for a specific trip. Other trip participants can read, but only the user can write to their own document."
         }
       }
     ]

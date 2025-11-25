@@ -2,19 +2,19 @@
 
 import React, { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { doc, getDoc, collection } from 'firebase/firestore';
-import { useDoc, useCollection, useUser, useFirestore, useMemoFirebase, setDocumentNonBlocking, errorEmitter, FirestorePermissionError } from '@/firebase';
-import type { Trip, User, Location } from '@/lib/types';
+import { doc, collection, arrayUnion, serverTimestamp } from 'firebase/firestore';
+import { useDoc, useCollection, useUser, useFirestore, useMemoFirebase, setDocumentNonBlocking, updateDocumentNonBlocking } from '@/firebase';
+import type { Trip, User, Location, Participant } from '@/lib/types';
 import { Header } from '@/components/header';
 import { MapView } from '@/components/map-view';
-import { ParticipantsList } from '@/components/participants-list';
 import { InviteDialog } from '@/components/invite-dialog';
 import { Button } from '@/components/ui/button';
 import { UserPlus, Copy, MessageSquare, Map } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ChatPanel } from '@/components/chat-panel';
+import { ParticipantsPanel } from '@/components/participants-panel';
 
 export default function TripPage() {
   const { tripId } = useParams() as { tripId: string };
@@ -23,16 +23,17 @@ export default function TripPage() {
   const firestore = useFirestore();
   const { toast } = useToast();
 
-  const [participants, setParticipants] = useState<User[]>([]);
   const [isInviteOpen, setInviteOpen] = useState(false);
-  const [isFetchingParticipants, setFetchingParticipants] = useState(true);
-
+  
   // --- Data Fetching ---
   const tripRef = useMemoFirebase(() => (firestore && tripId ? doc(firestore, 'trips', tripId) : null), [firestore, tripId]);
   const { data: tripData, isLoading: isTripLoading } = useDoc<Trip>(tripRef);
 
   const locationsRef = useMemoFirebase(() => (firestore && tripId ? collection(firestore, 'trips', tripId, 'locations') : null), [firestore, tripId]);
-  const { data: locationsData, isLoading: areLocationsLoading } = useCollection<Location>(locationsRef);
+  const { data: locationsData } = useCollection<Location>(locationsRef);
+
+  const participantsRef = useMemoFirebase(() => (firestore && tripId ? collection(firestore, 'trips', tripId, 'participants') : null), [firestore, tripId]);
+  const { data: participantsData, isLoading: areParticipantsLoading } = useCollection<Participant>(participantsRef);
 
   const locationsMap = React.useMemo(() => {
     if (!locationsData) return {};
@@ -56,60 +57,44 @@ export default function TripPage() {
     }
   }, [user, isUserLoading, tripData, isTripLoading, router, toast]);
 
-  // Fetch participant details
+  // Update user's location periodically & create participant doc if it doesn't exist
   useEffect(() => {
-    if (!firestore || !tripData) return;
+    if (!user || !firestore || !tripId || !participantsData) return;
 
-    setFetchingParticipants(true);
-    const fetchParticipantDetails = async () => {
-      const participantPromises = tripData.participantIds.map(id => {
-        const userDocRef = doc(firestore, 'users', id);
-        return getDoc(userDocRef)
-          .catch(error => {
-            // Emit a detailed error for debugging security rules
-            const contextualError = new FirestorePermissionError({
-                operation: 'get',
-                path: `users/${id}`,
-            });
-            errorEmitter.emit('permission-error', contextualError);
-            // Return null so Promise.all doesn't fail completely
-            return null; 
-          });
-      });
-
-      try {
-        const participantSnaps = await Promise.all(participantPromises);
-        const participantUsers = participantSnaps
-          .filter((snap): snap is import('firebase/firestore').DocumentSnapshot => snap !== null && snap.exists())
-          .map(snap => snap.data() as User);
-        setParticipants(participantUsers);
-      } catch (error) {
-        // This outer catch is now less likely to be hit for permission errors,
-        // but is kept as a fallback for other potential issues with Promise.all
-        console.error("Error processing participant details:", error);
-        toast({ title: "Error", description: "Could not load all participant information." });
-      } finally {
-        setFetchingParticipants(false);
-      }
-    };
-    fetchParticipantDetails();
-  }, [firestore, tripData, toast]);
-
-  // Update user's location periodically
-  useEffect(() => {
-    if (!user || !firestore || !tripId) return;
+    const myParticipantDoc = participantsData.find(p => p.id === user.uid);
 
     const updateLocation = () => {
       navigator.geolocation.getCurrentPosition(
         (position) => {
           const { latitude, longitude } = position.coords;
+          
+          // Update location subcollection
           const locationRef = doc(firestore, 'trips', tripId, 'locations', user.uid);
-          const newLocation: Omit<Location, 'id'> = {
+          const newLocationData: Omit<Location, 'id'> = {
             lat: latitude,
             lng: longitude,
-            lastUpdated: new Date(),
+            lastUpdated: serverTimestamp(),
           };
-          setDocumentNonBlocking(locationRef, newLocation, { merge: true });
+          setDocumentNonBlocking(locationRef, newLocationData, { merge: true });
+
+          // Update location on participant document
+          const participantRef = doc(firestore, 'trips', tripId, 'participants', user.uid);
+          const participantUpdate = {
+             currentLocation: { lat: latitude, lng: longitude }
+          };
+
+          if (myParticipantDoc) {
+             updateDocumentNonBlocking(participantRef, participantUpdate);
+          } else {
+             // Create participant doc if it's missing (e.g., user was invited but hasn't interacted)
+             const newParticipant: Participant = {
+                ...participantUpdate,
+                id: user.uid,
+                name: user.displayName || 'Anonymous',
+                avatarUrl: user.photoURL || `https://picsum.photos/seed/${user.uid}/40/40`,
+             }
+             setDocumentNonBlocking(participantRef, newParticipant, { merge: true });
+          }
         },
         (error) => console.error("Geolocation error:", error),
         { enableHighAccuracy: true }
@@ -120,7 +105,7 @@ export default function TripPage() {
     const intervalId = setInterval(updateLocation, 15000); // Update every 15 seconds
 
     return () => clearInterval(intervalId);
-  }, [user, firestore, tripId]);
+  }, [user, firestore, tripId, participantsData]);
 
 
   const copyJoinCode = () => {
@@ -130,7 +115,8 @@ export default function TripPage() {
     }
   };
   
-  const isLoading = isTripLoading || isUserLoading || isFetchingParticipants;
+  const isLoading = isTripLoading || isUserLoading || areParticipantsLoading;
+  const participants = participantsData || [];
 
   return (
       <div className="flex flex-col h-screen bg-background text-foreground overflow-hidden">
@@ -165,7 +151,7 @@ export default function TripPage() {
             ) : (
               <div>
                 <h1 className="text-2xl font-bold">{tripData?.name}</h1>
-                <p className="text-muted-foreground">{tripData?.destination}</p>
+                <p className="text-muted-foreground">{tripData?.destination.name}</p>
               </div>
             )}
             
@@ -178,7 +164,14 @@ export default function TripPage() {
                 </Button>
             </div>
 
-            <ParticipantsList participants={participants} isLoading={isLoading} />
+            <ParticipantsPanel 
+              participants={participants} 
+              isLoading={isLoading} 
+              currentUser={user}
+              tripId={tripId}
+              destination={tripData?.destination}
+              tripType={tripData?.tripType}
+            />
           </aside>
           
         </main>

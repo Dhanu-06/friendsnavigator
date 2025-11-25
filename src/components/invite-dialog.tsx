@@ -12,10 +12,11 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { useFirestore, updateDocumentNonBlocking } from '@/firebase';
+import { useFirestore, updateDocumentNonBlocking, setDocumentNonBlocking } from '@/firebase';
 import { collection, query, where, getDocs, doc, arrayUnion } from 'firebase/firestore';
 import { useToast } from '@/hooks/use-toast';
 import { Loader } from 'lucide-react';
+import type { Participant } from '@/lib/types';
 
 type InviteDialogProps = {
   tripId: string;
@@ -47,25 +48,33 @@ export function InviteDialog({ tripId, isOpen, onOpenChange }: InviteDialogProps
         setInviting(false);
         return;
       }
-
+      
       const userDoc = querySnapshot.docs[0];
       const userId = userDoc.id;
+      const userData = userDoc.data();
+
+      // 2. Add user to trip's participantIds
       const tripRef = doc(firestore, 'trips', tripId);
-      
-      // 2. Add user to trip's participantIds using the non-blocking helper
-      // This will automatically emit a detailed error on permission failure.
       updateDocumentNonBlocking(tripRef, {
         participantIds: arrayUnion(userId)
       });
+      
+      // 3. Create participant document for the invited user
+      const participantRef = doc(firestore, 'trips', tripId, 'participants', userId);
+      const newParticipant: Participant = {
+        id: userId,
+        name: userData.name || 'Anonymous',
+        avatarUrl: userData.avatarUrl || `https://picsum.photos/seed/${userId}/40/40`,
+      };
+      setDocumentNonBlocking(participantRef, newParticipant, { merge: true });
       
       toast({ title: 'Invitation Sent!', description: `${email} has been added to the trip.` });
       onOpenChange(false);
       setEmail('');
 
     } catch (error: any) {
-      // This will now catch errors from getDocs, but not the updateDoc.
-      console.error('Error finding user to invite:', error);
-      toast({ title: 'Invitation Failed', description: error.message || 'Could not find the user.', variant: 'destructive' });
+      console.error('Error inviting user:', error);
+      toast({ title: 'Invitation Failed', description: error.message || 'Could not process the invitation.', variant: 'destructive' });
     } finally {
       setInviting(false);
     }
@@ -77,7 +86,7 @@ export function InviteDialog({ tripId, isOpen, onOpenChange }: InviteDialogProps
         <DialogHeader>
           <DialogTitle>Invite a Friend</DialogTitle>
           <DialogDescription>
-            Enter the email address of the person you want to invite to this trip.
+            Enter the email address of the person you want to invite to this trip. They will be added as a participant.
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-4 py-4">
