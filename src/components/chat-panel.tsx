@@ -2,7 +2,7 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { User as FirebaseUser } from 'firebase/auth';
-import type { User } from '@/lib/types';
+import type { Participant } from '@/lib/types';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -20,7 +20,7 @@ type Message = {
 
 type ChatPanelProps = {
   currentUser: FirebaseUser | null;
-  participants: User[];
+  participants: Participant[];
 };
 
 export function ChatPanel({ currentUser, participants }: ChatPanelProps) {
@@ -32,16 +32,15 @@ export function ChatPanel({ currentUser, participants }: ChatPanelProps) {
     return participants.reduce((acc, p) => {
       acc[p.id] = p;
       return acc;
-    }, {} as Record<string, User>);
+    }, {} as Record<string, Participant>);
   }, [participants]);
   
   // Add current user to participants map if not already there
   if (currentUser && !participantsMap[currentUser.uid]) {
     participantsMap[currentUser.uid] = {
         id: currentUser.uid,
-        name: currentUser.displayName,
-        email: currentUser.email,
-        avatarUrl: currentUser.photoURL
+        name: currentUser.displayName || 'You',
+        avatarUrl: currentUser.photoURL || ''
     }
   }
 
@@ -92,7 +91,7 @@ export function ChatPanel({ currentUser, participants }: ChatPanelProps) {
                 )}
               >
                 <Avatar className="h-8 w-8">
-                  <AvatarImage src={author?.avatarUrl || ''} />
+                  <AvatarImage src={author?.avatarUrl || undefined} />
                   <AvatarFallback>{author?.name?.charAt(0) || '?'}</AvatarFallback>
                 </Avatar>
                 <div
