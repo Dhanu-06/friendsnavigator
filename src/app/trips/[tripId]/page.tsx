@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { doc, collection, arrayUnion, serverTimestamp } from 'firebase/firestore';
+import { doc, collection, onSnapshot, arrayUnion, serverTimestamp, DocumentReference } from 'firebase/firestore';
 import { useDoc, useCollection, useUser, useFirestore, useMemoFirebase, setDocumentNonBlocking, updateDocumentNonBlocking } from '@/firebase';
 import type { Trip, User, Location, Participant } from '@/lib/types';
 import { Header } from '@/components/header';
@@ -17,7 +17,7 @@ import { ChatPanel } from '@/components/chat-panel';
 import { ParticipantsPanel } from '@/components/participants-panel';
 
 // A new hook to fetch multiple documents individually
-function useDocuments<T>(refs: doc.DocumentReference<any>[] | null) {
+function useDocuments<T>(refs: DocumentReference<any>[] | null) {
   const [data, setData] = useState<any[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<any | null>(null);
