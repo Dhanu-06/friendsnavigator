@@ -77,15 +77,13 @@ function buildAuthObject(currentUser: User | null): FirebaseAuthObject | null {
 function buildRequestObject(context: SecurityRuleContext): SecurityRuleRequest {
   let authObject: FirebaseAuthObject | null = null;
   try {
-    // Safely attempt to get the current user.
     const firebaseAuth = getAuth();
     const currentUser = firebaseAuth.currentUser;
     if (currentUser) {
       authObject = buildAuthObject(currentUser);
     }
   } catch {
-    // This will catch errors if the Firebase app is not yet initialized.
-    // In this case, we'll proceed without auth information.
+    // This can happen if the Firebase app isn't initialized yet.
   }
 
   return {
@@ -104,8 +102,7 @@ function buildRequestObject(context: SecurityRuleContext): SecurityRuleRequest {
  */
 function buildErrorMessage(requestObject: SecurityRuleRequest): string {
   // Always return a string from this function.
-  return `Missing or insufficient permissions: The following request was denied by Firestore Security Rules:
-${JSON.stringify(requestObject, null, 2)}`;
+  return `Missing or insufficient permissions: The following request was denied by Firestore Security Rules:\n${JSON.stringify(requestObject, null, 2)}`;
 }
 
 /**
@@ -119,7 +116,7 @@ export class FirestorePermissionError extends Error {
   constructor(context: SecurityRuleContext) {
     const requestObject = buildRequestObject(context);
     // Call the parent Error constructor with a guaranteed STRING message.
-    // This is critical to prevent '[object Object]' errors.
+    // This is critical to prevent '[object Object]' errors when the error is thrown.
     super(buildErrorMessage(requestObject)); 
     this.name = 'FirebaseError'; // To mimic a standard Firebase error name
     this.request = requestObject; // Attach the full context for programmatic access

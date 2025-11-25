@@ -30,7 +30,10 @@ export default function MapClient({
   const [isReady, setIsReady] = useState(false);
 
   useEffect(() => {
-    // Run only in browser
+    // This effect initializes the map.
+    // It's client-side only because of `typeof window` check and dynamic import.
+    // Thrown objects were causing `Error: [object Object]`. This is now handled
+    // by catching all errors and setting a readable string in state.
     if (typeof window === 'undefined') return;
     if (!mapContainerRef.current) return;
 
@@ -44,16 +47,16 @@ export default function MapClient({
     }
 
     let isCancelled = false;
-    let map: Map;
 
     (async () => {
       try {
-        // dynamic import – avoids SSR/window problems
+        // Dynamic import ensures TomTom's SDK (a browser-only library)
+        // is not executed during server-side rendering.
         const tt = await import('@tomtom-international/web-sdk-maps');
 
         if (!mapContainerRef.current || isCancelled) return;
 
-        map = tt.map({
+        const map = tt.map({
           key: apiKey,
           container: mapContainerRef.current,
           center: [center.lng, center.lat], // [lng, lat]
@@ -68,7 +71,6 @@ export default function MapClient({
 
         mapInstanceRef.current = map;
 
-        // Optional controls
         map.addControl(new tt.NavigationControl());
 
         map.on('load', () => {
@@ -104,7 +106,7 @@ export default function MapClient({
     if (mapInstanceRef.current && isReady) {
       mapInstanceRef.current.flyTo({ center: [center.lng, center.lat], zoom });
     }
-  }, [center, zoom, isReady]);
+  }, [center.lat, center.lng, zoom, isReady]);
 
   // Update markers whenever friends list changes
   useEffect(() => {
