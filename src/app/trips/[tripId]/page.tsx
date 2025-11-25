@@ -170,7 +170,7 @@ export default function TripPage() {
     const intervalId = setInterval(updateLocation, 15000); // Update every 15 seconds
 
     return () => clearInterval(intervalId);
-  }, [user, firestore, tripId, participantsData, areParticipantsLoading]);
+  }, [user, firestore, tripId, areParticipantsLoading]);
 
 
   const copyJoinCode = () => {
