@@ -23,7 +23,7 @@ service cloud.firestore {
       allow get: if isOwner(userId) || 
                   exists(/databases/$(database)/documents/trips/{tripId}
                     where request.auth.uid in get(/databases/$(database)/documents/trips/$(tripId)).data.participantIds && 
-                          userId in get(/databases/$(database)/documents/trips/{tripId)).data.participantIds);
+                          userId in get(/databases/$(database)/documents/trips/$(tripId)).data.participantIds);
       allow list: if false; // Never allow listing all users.
       // A user can create their own profile document.
       allow create: if isOwner(userId);

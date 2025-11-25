@@ -16,6 +16,49 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ChatPanel } from '@/components/chat-panel';
 import { ParticipantsPanel } from '@/components/participants-panel';
 
+// A new hook to fetch multiple documents individually
+function useDocuments<T>(refs: doc.DocumentReference<any>[] | null) {
+  const [data, setData] = useState<any[] | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<any | null>(null);
+
+  useEffect(() => {
+    if (!refs || refs.length === 0) {
+      setLoading(false);
+      setData([]);
+      return;
+    }
+
+    setLoading(true);
+    const unsubscribes = refs.map((ref, index) => {
+      return onSnapshot(ref, 
+        (doc) => {
+          setData(prevData => {
+            const newData = [...(prevData || [])];
+            newData[index] = { id: doc.id, ...doc.data() };
+            return newData;
+          });
+          // This is a simplified loading state.
+          // A more robust solution might wait for all docs to load.
+          setLoading(false);
+        },
+        (err) => {
+          console.error(`Error fetching doc: ${ref.path}`, err);
+          setError(err);
+          setLoading(false);
+        }
+      );
+    });
+
+    return () => unsubscribes.forEach(unsub => unsub());
+  }, [refs]);
+
+  const filteredData = data ? data.filter(Boolean) as T[] : [];
+
+  return { data: filteredData, isLoading: loading, error };
+}
+
+
 export default function TripPage() {
   const { tripId } = useParams() as { tripId: string };
   const router = useRouter();
@@ -31,9 +74,16 @@ export default function TripPage() {
 
   const locationsRef = useMemoFirebase(() => (firestore && tripId ? collection(firestore, 'trips', tripId, 'locations') : null), [firestore, tripId]);
   const { data: locationsData } = useCollection<Location>(locationsRef);
+  
+  // NEW: Create participant document references from tripData.participantIds
+  const participantRefs = useMemoFirebase(() => {
+    if (!firestore || !tripId || !tripData?.participantIds) return null;
+    return tripData.participantIds.map(id => doc(firestore, 'trips', tripId, 'participants', id));
+  }, [firestore, tripId, tripData?.participantIds]);
 
-  const participantsRef = useMemoFirebase(() => (firestore && tripId ? collection(firestore, 'trips', tripId, 'participants') : null), [firestore, tripId]);
-  const { data: participantsData, isLoading: areParticipantsLoading } = useCollection<Participant>(participantsRef);
+  // NEW: Fetch participant documents individually using useDoc for each
+  const { data: participantsData, isLoading: areParticipantsLoading } = useDocuments<Participant>(participantRefs);
+
 
   const locationsMap = React.useMemo(() => {
     if (!locationsData) return {};
@@ -59,9 +109,10 @@ export default function TripPage() {
 
   // Update user's location periodically & create participant doc if it doesn't exist
   useEffect(() => {
-    if (!user || !firestore || !tripId || !participantsData) return;
+    if (!user || !firestore || !tripId || areParticipantsLoading) return;
 
-    const myParticipantDoc = participantsData.find(p => p.id === user.uid);
+    // We check participantsData which is now loaded safely.
+    const myParticipantDoc = participantsData?.find(p => p.id === user.uid);
 
     const updateLocation = () => {
       navigator.geolocation.getCurrentPosition(
@@ -105,7 +156,7 @@ export default function TripPage() {
     const intervalId = setInterval(updateLocation, 15000); // Update every 15 seconds
 
     return () => clearInterval(intervalId);
-  }, [user, firestore, tripId, participantsData]);
+  }, [user, firestore, tripId, participantsData, areParticipantsLoading]);
 
 
   const copyJoinCode = () => {
