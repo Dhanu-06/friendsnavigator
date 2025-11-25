@@ -97,11 +97,13 @@ function buildRequestObject(context: SecurityRuleContext): SecurityRuleRequest {
 }
 
 /**
- * Builds the final, formatted error message for the LLM.
+ * Builds the final, formatted error message string.
+ * This prevents throwing a raw object, which causes the '[object Object]' error.
  * @param requestObject The simulated request object.
  * @returns A string containing the error message and the JSON payload.
  */
 function buildErrorMessage(requestObject: SecurityRuleRequest): string {
+  // Always return a string from this function.
   return `Missing or insufficient permissions: The following request was denied by Firestore Security Rules:
 ${JSON.stringify(requestObject, null, 2)}`;
 }
@@ -109,15 +111,17 @@ ${JSON.stringify(requestObject, null, 2)}`;
 /**
  * A custom error class designed to be consumed by an LLM for debugging.
  * It structures the error information to mimic the request object
- * available in Firestore Security Rules.
+ * available in Firestore Security Rules, and crucially, it extends Error correctly.
  */
 export class FirestorePermissionError extends Error {
   public readonly request: SecurityRuleRequest;
 
   constructor(context: SecurityRuleContext) {
     const requestObject = buildRequestObject(context);
-    super(buildErrorMessage(requestObject));
-    this.name = 'FirebaseError';
-    this.request = requestObject;
+    // Call the parent Error constructor with a guaranteed STRING message.
+    // This is critical to prevent '[object Object]' errors.
+    super(buildErrorMessage(requestObject)); 
+    this.name = 'FirebaseError'; // To mimic a standard Firebase error name
+    this.request = requestObject; // Attach the full context for programmatic access
   }
 }
