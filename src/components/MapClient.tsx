@@ -59,9 +59,20 @@ export default function MapClient({
             });
 
         } catch (err) {
-            console.error('TomTom Map init error:', err);
-            setError('Map initialization failed. Check the console for details.');
+            // How to debug: Open the browser's developer console (F12) to see the full error object logged below.
+            // This will provide more details than the message shown on the screen.
+            console.error('TomTom Map initialization error:', err);
+            const msg =
+              err instanceof Error
+                ? err.message
+                : typeof err === 'string'
+                ? err
+                : JSON.stringify(err);
+            setError(`Map failed to load: ${msg}`);
         }
+    }).catch(err => {
+        console.error('Failed to load TomTom SDK:', err);
+        setError('The map library itself could not be loaded. Please check your internet connection.');
     });
 
     return () => {
@@ -125,17 +136,14 @@ export default function MapClient({
     <div style={{ height: '100%', width: '100%', minHeight: 400, position: 'relative' }} className="bg-muted rounded-lg border">
       {error && (
         <div className="absolute inset-0 z-10 p-8 rounded-md bg-destructive/90 text-destructive-foreground flex flex-col items-center justify-center text-center">
-            <h3 className="text-xl font-bold mb-4">TomTom Maps Error</h3>
-            <p className="mb-4">The map could not be loaded. This is usually caused by a missing or invalid TomTom API key.</p>
+            <h3 className="text-xl font-bold mb-4">Map Error</h3>
+            <p className="mb-4">The map could not be loaded. This might be due to an invalid API key, network issues, or a configuration problem.</p>
             <div className="text-left bg-background text-foreground p-4 rounded-md max-w-lg w-full font-code text-sm">
-                <p className="font-bold mb-2">To fix this:</p>
+                <p className="font-bold mb-2">To fix this, check the following:</p>
                 <ol className="list-decimal list-inside space-y-2">
-                    <li>Go to the <b className="text-primary">TomTom Developer Portal</b> and create a free account.</li>
-                    <li>Create a new application and get your **API Key**.</li>
-                    <li>Create a <b className="text-primary">.env.local</b> file in your project's root directory.</li>
-                    <li>Add your API key to the file: <br /><code className="bg-muted px-1 py-0.5 rounded">NEXT_PUBLIC_TOMTOM_API_KEY=YOUR_KEY_HERE</code></li>
-                    <li>In the TomTom Developer Portal, make sure your key is enabled for the domains you're using (e.g. `localhost`).</li>
-                    <li><b className="text-primary">Restart your development server</b> after editing the <code className="bg-muted px-1 py-0.5 rounded">.env.local</code> file.</li>
+                    <li><b>API Key</b>: Ensure `NEXT_PUBLIC_TOMTOM_API_KEY` in your `.env.local` file is correct.</li>
+                    <li><b>TomTom Account</b>: Make sure your key is enabled for the domain you're using (e.g., `localhost`) in your TomTom Developer Portal.</li>
+                    <li><b>Console</b>: Open the browser's developer console (F12) to see the detailed error message.</li>
                 </ol>
             </div>
             <p className="mt-4 text-sm text-destructive-foreground/80">{error}</p>
