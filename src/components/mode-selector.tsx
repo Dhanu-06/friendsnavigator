@@ -9,18 +9,18 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Button } from './ui/button';
-import { Card } from './ui/card';
 import { Badge } from './ui/badge';
 import { cn } from '@/lib/utils';
 import { AlertCircle, Zap, Tags, Smile, Bus, TramFront, PersonStanding, Car, Bike } from 'lucide-react';
 import type { TravelPreference, TravelMode, ModeOption, Participant } from '@/lib/types';
-import { doc, serverTimestamp } from 'firebase/firestore';
-import { useFirestore, updateDocumentNonBlocking } from '@/firebase';
+import { useToast } from '@/hooks/use-toast';
+
 
 type ModeSelectorProps = {
   participant: Participant;
   destination: { lat: number, lng: number } | undefined;
   tripId: string;
+  onParticipantUpdate: (updatedData: Partial<Participant>) => void;
 };
 
 // --- Helper Functions (as described in the prompt) ---
@@ -91,12 +91,12 @@ function getRecommendedMode(options: ModeOption[], preference: TravelPreference)
   return getRecommendedMode(options, 'fastest');
 }
 
-export function ModeSelector({ participant, destination, tripId }: ModeSelectorProps) {
+export function ModeSelector({ participant, destination, tripId, onParticipantUpdate }: ModeSelectorProps) {
   const [preference, setPreference] = useState<TravelPreference>(participant.preference || 'fastest');
-  const firestore = useFirestore();
+  const { toast } = useToast();
 
   const handleCalculate = () => {
-    if (!participant.currentLocation || !destination || !firestore) return;
+    if (!participant.currentLocation || !destination) return;
 
     const distance = getDistanceKm(
       participant.currentLocation.lat,
@@ -108,21 +108,21 @@ export function ModeSelector({ participant, destination, tripId }: ModeSelectorP
     const options = computeOptions(distance);
     const recommended = getRecommendedMode(options, preference);
 
-    const participantRef = doc(firestore, 'trips', tripId, 'participants', participant.id);
-    updateDocumentNonBlocking(participantRef, {
+    onParticipantUpdate({
         preference,
         suggestion: {
             recommendedMode: recommended.mode,
             options: options,
-            lastCalculatedAt: serverTimestamp()
+            lastCalculatedAt: new Date()
         }
     });
+
+    toast({ title: "Options Calculated!", description: `We recommend taking ${MODE_DETAILS[recommended.mode].label}`});
   };
 
   const handleSelectMode = (mode: TravelMode) => {
-    if(!firestore) return;
-    const participantRef = doc(firestore, 'trips', tripId, 'participants', participant.id);
-    updateDocumentNonBlocking(participantRef, { selectedMode: mode });
+    onParticipantUpdate({ selectedMode: mode });
+    toast({ title: "Mode Selected!", description: `You've selected ${MODE_DETAILS[mode].label}.`});
   }
 
   const options = participant.suggestion?.options;

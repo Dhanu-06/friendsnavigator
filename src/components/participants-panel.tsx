@@ -17,6 +17,7 @@ type ParticipantsPanelProps = {
   tripId: string;
   destination: { lat: number, lng: number } | undefined;
   tripType: 'within-city' | 'out-of-city' | undefined;
+  onParticipantUpdate: (updatedData: Partial<Participant>) => void;
 };
 
 const MODE_ICONS: Record<TravelMode, React.ElementType> = {
@@ -28,7 +29,7 @@ const MODE_ICONS: Record<TravelMode, React.ElementType> = {
     walk: PersonStanding,
 }
 
-export function ParticipantsPanel({ participants, isLoading, currentUser, tripId, destination, tripType }: ParticipantsPanelProps) {
+export function ParticipantsPanel({ participants, isLoading, currentUser, tripId, destination, tripType, onParticipantUpdate }: ParticipantsPanelProps) {
   
   const renderSkeleton = () => (
     <div className="space-y-4">
@@ -95,6 +96,7 @@ export function ParticipantsPanel({ participants, isLoading, currentUser, tripId
                         participant={myParticipant}
                         destination={destination}
                         tripId={tripId}
+                        onParticipantUpdate={onParticipantUpdate}
                     />
                 </AccordionContent>
             </AccordionItem>

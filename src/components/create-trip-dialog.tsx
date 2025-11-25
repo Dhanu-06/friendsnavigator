@@ -13,10 +13,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { useUser, useFirestore, addDocumentNonBlocking, setDocumentNonBlocking } from '@/firebase';
-import { collection, doc } from 'firebase/firestore';
+import { useUser } from '@/firebase';
 import { useToast } from '@/hooks/use-toast';
-import type { Trip, Participant } from '@/lib/types';
 import { Loader, Building, Mountain } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
@@ -35,7 +33,6 @@ export function CreateTripDialog({ isOpen, onOpenChange }: CreateTripDialogProps
   const [isCreating, setCreating] = useState(false);
 
   const { user } = useUser();
-  const firestore = useFirestore();
   const { toast } = useToast();
   const router = useRouter();
 
@@ -47,7 +44,7 @@ export function CreateTripDialog({ isOpen, onOpenChange }: CreateTripDialogProps
   }
 
   const handleCreateTrip = async () => {
-    if (!user || !firestore || !name || !destination) {
+    if (!user || !name || !destination) {
       toast({
         title: 'Missing Information',
         description: 'Please fill out the trip name and destination.',
@@ -66,53 +63,22 @@ export function CreateTripDialog({ isOpen, onOpenChange }: CreateTripDialogProps
 
     setCreating(true);
     
-    // Mock destination coords for now
-    const newTripData: Omit<Trip, 'id'> = {
-      name,
-      destination: {
-        name: destination,
-        lat: 12.9716, // Example: Bangalore lat
-        lng: 77.5946  // Example: Bangalore lng
-      },
-      description: description || '',
-      ownerId: user.uid,
-      participantIds: [user.uid],
-      tripType: tripType,
-    };
-
-    try {
-      const tripsCol = collection(firestore, 'trips');
-      const newTripRef = await addDocumentNonBlocking(tripsCol, newTripData);
-
-      if (newTripRef) {
-        // Also create the initial participant document for the owner
-        const participantRef = doc(firestore, 'trips', newTripRef.id, 'participants', user.uid);
-        const initialParticipant: Participant = {
-          id: user.uid,
-          name: user.displayName || 'Anonymous',
-          avatarUrl: user.photoURL || `https://picsum.photos/seed/${user.uid}/40/40`,
-        };
-        setDocumentNonBlocking(participantRef, initialParticipant, { merge: true });
-
+    // SIMULATE trip creation
+    setTimeout(() => {
+        const newTripId = `demo-${Date.now()}`;
+        
         toast({
-          title: 'Trip Created!',
+          title: 'Trip Created! (DEMO)',
           description: `Your trip "${name}" has been created.`,
         });
 
+        setCreating(false);
         onOpenChange(false);
         resetForm();
         
-        router.push(`/trips/${newTripRef.id}`);
-      }
-    } catch (error) {
-       toast({
-        title: 'Error Creating Trip',
-        description: 'An unexpected error occurred. Please try again.',
-        variant: 'destructive',
-      });
-    } finally {
-       setCreating(false);
-    }
+        // Redirect to a known dummy trip page for the demo
+        router.push(`/trips/FIzR2fiP2UtwPQ2GNXVb`);
+    }, 1000);
   };
 
   return (

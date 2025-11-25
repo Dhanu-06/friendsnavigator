@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useUser } from '@/firebase';
 import type { Trip, User, Location, Participant } from '@/lib/types';
@@ -37,12 +37,6 @@ const DUMMY_PARTICIPANTS: Participant[] = [
       avatarUrl: 'https://picsum.photos/seed/user2/40/40',
       currentLocation: { lat: 12.9616, lng: 77.6046 },
     },
-    {
-      id: 'user3',
-      name: 'You',
-      avatarUrl: 'https://picsum.photos/seed/user3/40/40',
-      currentLocation: { lat: 12.9716, lng: 77.5946 }, // User's location
-    }
 ];
 
 const DUMMY_TRIP: Omit<Trip, 'id'> = {
@@ -69,7 +63,6 @@ export default function TripPage() {
   // --- Local State for Dummy Data ---
   const [tripData, setTripData] = useState<Trip | null>(null);
   const [participantsData, setParticipantsData] = useState<Participant[]>([]);
-  const [locationsData, setLocationsData] = useState<Location[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   // --- Effects ---
@@ -81,32 +74,21 @@ export default function TripPage() {
     }
   }, [user, isAuthLoading, router]);
 
-  // Simulate fetching data from Firestore
+  // Simulate fetching data
   useEffect(() => {
     setIsLoading(true);
     const timer = setTimeout(() => {
-      // Find the current user in the dummy data and update their ID
       const currentUserFromAuth = user;
-      const participantsWithRealUser = DUMMY_PARTICIPANTS.map(p => 
-        p.name === 'You' && currentUserFromAuth
-          ? { ...p, id: currentUserFromAuth.uid, name: currentUserFromAuth.displayName || 'You' }
-          : p
-      );
       
+      const selfParticipant: Participant = {
+        id: currentUserFromAuth?.uid || 'user3',
+        name: currentUserFromAuth?.displayName || 'You',
+        avatarUrl: currentUserFromAuth?.photoURL || 'https://picsum.photos/seed/user3/40/40',
+        currentLocation: { lat: 12.9716, lng: 77.5946 }, // User's location
+      };
+
       setTripData({ ...DUMMY_TRIP, id: tripId });
-      setParticipantsData(participantsWithRealUser);
-
-      // Derive locations from participants
-      const derivedLocations: Location[] = participantsWithRealUser
-        .filter(p => p.currentLocation)
-        .map(p => ({
-          id: p.id,
-          lat: p.currentLocation!.lat,
-          lng: p.currentLocation!.lng,
-          lastUpdated: new Date(),
-        }));
-      setLocationsData(derivedLocations);
-
+      setParticipantsData([...DUMMY_PARTICIPANTS, selfParticipant]);
       setIsLoading(false);
     }, 800); // Simulate network latency
 
@@ -115,12 +97,18 @@ export default function TripPage() {
 
 
   const locationsMap = React.useMemo(() => {
-    if (!locationsData) return {};
-    return locationsData.reduce((acc, loc) => {
-      if(loc.id) acc[loc.id] = loc;
+    return participantsData.reduce((acc, p) => {
+      if (p.currentLocation) {
+        acc[p.id] = {
+            id: p.id,
+            lat: p.currentLocation.lat,
+            lng: p.currentLocation.lng,
+            lastUpdated: new Date()
+        }
+      }
       return acc;
     }, {} as Record<string, Location>);
-  }, [locationsData]);
+  }, [participantsData]);
 
 
   const copyJoinCode = () => {
@@ -129,6 +117,14 @@ export default function TripPage() {
   };
   
   const currentAppUser = user ? { ...user, uid: user.uid, displayName: user.displayName || 'You', photoURL: user.photoURL || ''} as User : null;
+
+  const handleParticipantUpdate = useCallback((updatedData: Partial<Participant>) => {
+    if (!user) return;
+    setParticipantsData(prev => 
+        prev.map(p => p.id === user.uid ? { ...p, ...updatedData } : p)
+    );
+  }, [user]);
+
 
   return (
       <div className="flex flex-col h-screen bg-background text-foreground overflow-hidden">
@@ -183,6 +179,7 @@ export default function TripPage() {
               tripId={tripId}
               destination={tripData?.destination}
               tripType={tripData?.tripType}
+              onParticipantUpdate={handleParticipantUpdate}
             />
           </aside>
           
