@@ -20,7 +20,7 @@ import { ParticipantsPanel } from '@/components/participants-panel';
 function useDocuments<T>(refs: DocumentReference<any>[] | null) {
   const [data, setData] = useState<any[] | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<any | null>(null);
+  const [error, setError] = useState<Error | null>(null);
 
   // We use JSON.stringify to create a stable dependency for the useEffect hook
   const refsKey = JSON.stringify(refs?.map(r => r.path));
@@ -41,21 +41,23 @@ function useDocuments<T>(refs: DocumentReference<any>[] | null) {
           setData(prevData => {
             const newData = [...(prevData || [])];
             newData[index] = { id: doc.id, ...doc.data() };
+            // A more robust loading state: only set loading to false when all docs are loaded
+            if (newData.filter(Boolean).length === refs.length) {
+              setLoading(false);
+            }
             return newData;
           });
-          // A more robust loading state: only set loading to false when all docs are loaded
-          // This is a simplified check. A counter would be better.
-          if (index === refs.length - 1) {
-            setLoading(false);
-          }
         },
         (err) => {
+          // Create the rich, contextual error for the dev overlay
           const contextualError = new FirestorePermissionError({
             operation: 'get',
             path: ref.path,
           });
-          setError(contextualError);
+          // Set a simple error for the local UI
+          setError(new Error("Permission denied."));
           setLoading(false);
+          // Emit the detailed error for the global handler
           errorEmitter.emit('permission-error', contextualError);
         }
       );
@@ -87,14 +89,14 @@ export default function TripPage() {
   const locationsRef = useMemoFirebase(() => (firestore && tripId ? collection(firestore, 'trips', tripId, 'locations') : null), [firestore, tripId]);
   const { data: locationsData } = useCollection<Location>(locationsRef);
   
-  // NEW: Create participant document references from tripData.participantIds
+  // Create participant document references from tripData.participantIds
   const participantRefs = useMemoFirebase(() => {
     if (!firestore || !tripId || !tripData?.participantIds) return null;
     return tripData.participantIds.map(id => doc(firestore, 'trips', tripId, 'participants', id));
   }, [firestore, tripId, tripData?.participantIds]);
 
-  // NEW: Fetch participant documents individually using useDoc for each
-  const { data: participantsData, isLoading: areParticipantsLoading } = useDocuments<Participant>(participantRefs);
+  // Fetch participant documents individually
+  const { data: participantsData, isLoading: areParticipantsLoading, error: participantsError } = useDocuments<Participant>(participantRefs);
 
 
   const locationsMap = React.useMemo(() => {
@@ -211,6 +213,11 @@ export default function TripPage() {
                 <Skeleton className="h-8 w-3/4" />
                 <Skeleton className="h-6 w-1/2" />
               </>
+            ) : participantsError ? (
+                <div className="text-destructive-foreground bg-destructive p-4 rounded-md">
+                    <p className="font-bold">Error Loading Participants</p>
+                    <p>{participantsError.message}</p>
+                </div>
             ) : (
               <div>
                 <h1 className="text-2xl font-bold">{tripData?.name}</h1>
