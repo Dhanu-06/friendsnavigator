@@ -2,8 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { doc, collection, onSnapshot, arrayUnion, serverTimestamp, DocumentReference } from 'firebase/firestore';
-import { useDoc, useCollection, useUser, useFirestore, useMemoFirebase, setDocumentNonBlocking, updateDocumentNonBlocking, errorEmitter, FirestorePermissionError } from '@/firebase';
+import { useUser } from '@/firebase';
 import type { Trip, User, Location, Participant } from '@/lib/types';
 import { Header } from '@/components/header';
 import { MapView } from '@/components/map-view';
@@ -16,172 +15,120 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ChatPanel } from '@/components/chat-panel';
 import { ParticipantsPanel } from '@/components/participants-panel';
 
-// A new hook to fetch multiple documents individually
-function useDocuments<T>(refs: DocumentReference<any>[] | null) {
-  const [data, setData] = useState<any[] | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<Error | null>(null);
-
-  // We use JSON.stringify to create a stable dependency for the useEffect hook
-  const refsKey = JSON.stringify(refs?.map(r => r.path));
-
-  useEffect(() => {
-    if (!refs || refs.length === 0) {
-      setLoading(false);
-      setData([]);
-      return;
+const DUMMY_PARTICIPANTS: Participant[] = [
+    {
+      id: 'user1',
+      name: 'Sarah',
+      avatarUrl: 'https://picsum.photos/seed/user1/40/40',
+      currentLocation: { lat: 12.9796, lng: 77.5906 },
+      selectedMode: 'ola',
+      suggestion: {
+        recommendedMode: 'ola',
+        options: [
+            { mode: 'ola', etaMinutes: 25, costEstimate: 250, explanation: 'Fastest cab option.' },
+            { mode: 'metro', etaMinutes: 35, costEstimate: 50, explanation: 'Cheaper, but involves a walk.' }
+        ],
+        lastCalculatedAt: new Date()
+      }
+    },
+    {
+      id: 'user2',
+      name: 'Mike',
+      avatarUrl: 'https://picsum.photos/seed/user2/40/40',
+      currentLocation: { lat: 12.9616, lng: 77.6046 },
+    },
+    {
+      id: 'user3',
+      name: 'You',
+      avatarUrl: 'https://picsum.photos/seed/user3/40/40',
+      currentLocation: { lat: 12.9716, lng: 77.5946 }, // User's location
     }
+];
 
-    setLoading(true);
-    setData(null);
-    setError(null);
-    const unsubscribes = refs.map((ref, index) => {
-      return onSnapshot(ref, 
-        (doc) => {
-          setData(prevData => {
-            const newData = [...(prevData || [])];
-            newData[index] = { id: doc.id, ...doc.data() };
-            // A more robust loading state: only set loading to false when all docs are loaded
-            if (newData.filter(Boolean).length === refs.length) {
-              setLoading(false);
-            }
-            return newData;
-          });
-        },
-        (err) => {
-          // Create the rich, contextual error for the dev overlay
-          const contextualError = new FirestorePermissionError({
-            operation: 'get',
-            path: ref.path,
-          });
-          // Set a simple error for the local UI
-          setError(new Error("Permission denied."));
-          setLoading(false);
-          // Emit the detailed error for the global handler
-          errorEmitter.emit('permission-error', contextualError);
-        }
-      );
-    });
-
-    return () => unsubscribes.forEach(unsub => unsub());
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [refsKey]); // Use the stable key as a dependency
-
-  const filteredData = data ? data.filter(Boolean) as T[] : [];
-
-  return { data: filteredData, isLoading: loading, error };
-}
-
+const DUMMY_TRIP: Omit<Trip, 'id'> = {
+    name: 'Team Outing to Koramangala',
+    destination: {
+        name: 'Koramangala Social',
+        lat: 12.9352,
+        lng: 77.6245
+    },
+    description: "Let's finally meet up!",
+    ownerId: 'user1',
+    participantIds: ['user1', 'user2', 'user3'],
+    tripType: 'within-city',
+};
 
 export default function TripPage() {
   const { tripId } = useParams() as { tripId: string };
   const router = useRouter();
-  const { user, isUserLoading } = useUser();
-  const firestore = useFirestore();
+  const { user, isUserLoading: isAuthLoading } = useUser();
   const { toast } = useToast();
 
   const [isInviteOpen, setInviteOpen] = useState(false);
   
-  // --- Data Fetching ---
-  const tripRef = useMemoFirebase(() => (firestore && tripId ? doc(firestore, 'trips', tripId) : null), [firestore, tripId]);
-  const { data: tripData, isLoading: isTripLoading } = useDoc<Trip>(tripRef);
+  // --- Local State for Dummy Data ---
+  const [tripData, setTripData] = useState<Trip | null>(null);
+  const [participantsData, setParticipantsData] = useState<Participant[]>([]);
+  const [locationsData, setLocationsData] = useState<Location[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
 
-  const locationsRef = useMemoFirebase(() => (firestore && tripId ? collection(firestore, 'trips', tripId, 'locations') : null), [firestore, tripId]);
-  const { data: locationsData } = useCollection<Location>(locationsRef);
-  
-  // Create participant document references from tripData.participantIds
-  const participantRefs = useMemoFirebase(() => {
-    if (!firestore || !tripId || !tripData?.participantIds) return null;
-    return tripData.participantIds.map(id => doc(firestore, 'trips', tripId, 'participants', id));
-  }, [firestore, tripId, tripData?.participantIds]);
+  // --- Effects ---
 
-  // Fetch participant documents individually
-  const { data: participantsData, isLoading: areParticipantsLoading, error: participantsError } = useDocuments<Participant>(participantRefs);
+  // Redirect if user is not authenticated
+  useEffect(() => {
+    if (!isAuthLoading && !user) {
+      router.push('/login');
+    }
+  }, [user, isAuthLoading, router]);
+
+  // Simulate fetching data from Firestore
+  useEffect(() => {
+    setIsLoading(true);
+    const timer = setTimeout(() => {
+      // Find the current user in the dummy data and update their ID
+      const currentUserFromAuth = user;
+      const participantsWithRealUser = DUMMY_PARTICIPANTS.map(p => 
+        p.name === 'You' && currentUserFromAuth
+          ? { ...p, id: currentUserFromAuth.uid, name: currentUserFromAuth.displayName || 'You' }
+          : p
+      );
+      
+      setTripData({ ...DUMMY_TRIP, id: tripId });
+      setParticipantsData(participantsWithRealUser);
+
+      // Derive locations from participants
+      const derivedLocations: Location[] = participantsWithRealUser
+        .filter(p => p.currentLocation)
+        .map(p => ({
+          id: p.id,
+          lat: p.currentLocation!.lat,
+          lng: p.currentLocation!.lng,
+          lastUpdated: new Date(),
+        }));
+      setLocationsData(derivedLocations);
+
+      setIsLoading(false);
+    }, 800); // Simulate network latency
+
+    return () => clearTimeout(timer);
+  }, [tripId, user]);
 
 
   const locationsMap = React.useMemo(() => {
     if (!locationsData) return {};
     return locationsData.reduce((acc, loc) => {
-      acc[loc.id] = loc;
+      if(loc.id) acc[loc.id] = loc;
       return acc;
     }, {} as Record<string, Location>);
   }, [locationsData]);
 
 
-  // --- Effects ---
-
-  // Redirect if user is not authenticated or not a participant
-  useEffect(() => {
-    if (isUserLoading || isTripLoading) return;
-    if (!user) {
-      router.push('/login');
-    } else if (tripData && !tripData.participantIds.includes(user.uid)) {
-      toast({ title: "Access Denied", description: "You are not a member of this trip.", variant: "destructive" });
-      router.push('/dashboard');
-    }
-  }, [user, isUserLoading, tripData, isTripLoading, router, toast]);
-
-  // Update user's location periodically & create participant doc if it doesn't exist
-  useEffect(() => {
-    if (!user || !firestore || !tripId) return;
-
-    const updateLocation = () => {
-      // Check for participant doc within the interval function to get the latest data
-      const myParticipantDoc = participantsData?.find(p => p.id === user.uid);
-      
-      navigator.geolocation.getCurrentPosition(
-        (position) => {
-          const { latitude, longitude } = position.coords;
-          
-          // Update location subcollection
-          const locationRef = doc(firestore, 'trips', tripId, 'locations', user.uid);
-          const newLocationData: Omit<Location, 'id'> = {
-            lat: latitude,
-            lng: longitude,
-            lastUpdated: serverTimestamp(),
-          };
-          setDocumentNonBlocking(locationRef, newLocationData, { merge: true });
-
-          // Update location on participant document
-          const participantRef = doc(firestore, 'trips', tripId, 'participants', user.uid);
-          const participantUpdate = {
-             currentLocation: { lat: latitude, lng: longitude }
-          };
-
-          if (myParticipantDoc) {
-             updateDocumentNonBlocking(participantRef, participantUpdate);
-          } else {
-             // Create participant doc if it's missing (e.g., user was invited but hasn't interacted)
-             const newParticipant: Participant = {
-                ...participantUpdate,
-                id: user.uid,
-                name: user.displayName || 'Anonymous',
-                avatarUrl: user.photoURL || `https://picsum.photos/seed/${user.uid}/40/40`,
-             }
-             setDocumentNonBlocking(participantRef, newParticipant, { merge: true });
-          }
-        },
-        (error) => console.error("Geolocation error:", error),
-        { enableHighAccuracy: true }
-      );
-    };
-
-    updateLocation(); // Initial update
-    const intervalId = setInterval(updateLocation, 15000); // Update every 15 seconds
-
-    return () => clearInterval(intervalId);
-  }, [user, firestore, tripId, participantsData]);
-
-
   const copyJoinCode = () => {
-    if (typeof tripId === 'string') {
-      navigator.clipboard.writeText(tripId);
-      toast({ title: "Copied!", description: "Trip join code copied to clipboard." });
-    }
+    navigator.clipboard.writeText(tripId);
+    toast({ title: "Copied!", description: "Trip join code copied to clipboard." });
   };
   
-  const isLoading = isTripLoading || isUserLoading || areParticipantsLoading;
-  const participants = participantsData || [];
+  const currentAppUser = user ? { ...user, uid: user.uid, displayName: user.displayName || 'You', photoURL: user.photoURL || ''} as User : null;
 
   return (
       <div className="flex flex-col h-screen bg-background text-foreground overflow-hidden">
@@ -198,10 +145,10 @@ export default function TripPage() {
                     </TabsList>
                 </div>
                 <TabsContent value="map" className="flex-1 overflow-auto p-4">
-                     <MapView participants={participants} locations={locationsMap} />
+                     <MapView participants={participantsData} locations={locationsMap} />
                 </TabsContent>
                 <TabsContent value="chat" className="flex-1 flex flex-col overflow-auto">
-                    <ChatPanel currentUser={user} participants={participants} />
+                    <ChatPanel currentUser={user} participants={participantsData} />
                 </TabsContent>
             </Tabs>
           </section>
@@ -213,11 +160,6 @@ export default function TripPage() {
                 <Skeleton className="h-8 w-3/4" />
                 <Skeleton className="h-6 w-1/2" />
               </>
-            ) : participantsError ? (
-                <div className="text-destructive-foreground bg-destructive p-4 rounded-md">
-                    <p className="font-bold">Error Loading Participants</p>
-                    <p>{participantsError.message}</p>
-                </div>
             ) : (
               <div>
                 <h1 className="text-2xl font-bold">{tripData?.name}</h1>
@@ -235,9 +177,9 @@ export default function TripPage() {
             </div>
 
             <ParticipantsPanel 
-              participants={participants} 
+              participants={participantsData} 
               isLoading={isLoading} 
-              currentUser={user}
+              currentUser={currentAppUser}
               tripId={tripId}
               destination={tripData?.destination}
               tripType={tripData?.tripType}
@@ -245,7 +187,7 @@ export default function TripPage() {
           </aside>
           
         </main>
-        {typeof tripId === 'string' && <InviteDialog tripId={tripId} isOpen={isInviteOpen} onOpenChange={setInviteOpen} />}
+        <InviteDialog tripId={tripId} isOpen={isInviteOpen} onOpenChange={setInviteOpen} />
       </div>
   );
 }
