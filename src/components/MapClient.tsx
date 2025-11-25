@@ -2,7 +2,7 @@
 'use client';
 
 import React, { useEffect, useRef, useState } from 'react';
-import tt from '@tomtom-international/web-sdk-maps';
+import type { Map, Marker, NavigationControl } from '@tomtom-international/web-sdk-maps';
 import '@tomtom-international/web-sdk-maps/dist/maps.css';
 
 type MapClientProps = {
@@ -17,8 +17,8 @@ export default function MapClient({
   markers = []
 }: MapClientProps) {
   const mapRef = useRef<HTMLDivElement | null>(null);
-  const mapObj = useRef<tt.Map | null>(null);
-  const markerRefs = useRef<Record<string, tt.Marker>>({});
+  const mapObj = useRef<Map | null>(null);
+  const markerRefs = useRef<Record<string, Marker>>({});
   const [error, setError] = useState<string | null>(null);
   const [isMapInitialized, setMapInitialized] = useState(false);
 
@@ -35,31 +35,34 @@ export default function MapClient({
     // Prevent re-initialization
     if (mapObj.current) return; 
 
-    try {
-      const map = tt.map({
-        key: apiKey,
-        container: mapRef.current,
-        center: [center.lng, center.lat],
-        zoom,
-        style: {
-           map: 'basic-dark',
-           poi: 'poi-dark',
-           trafficIncidents: 'traffic-incidents-dark',
-           trafficFlow: 'traffic-flow-dark'
-        }
-      });
-      
-      map.addControl(new tt.NavigationControl(), 'top-left');
-      mapObj.current = map;
-      
-      map.on('load', () => {
-        setMapInitialized(true);
-      });
+    // Dynamically import the TomTom library
+    import('@tomtom-international/web-sdk-maps').then(tt => {
+        try {
+            const map = tt.map({
+                key: apiKey,
+                container: mapRef.current!,
+                center: [center.lng, center.lat],
+                zoom,
+                style: {
+                    map: 'basic-dark',
+                    poi: 'poi-dark',
+                    trafficIncidents: 'traffic-incidents-dark',
+                    trafficFlow: 'traffic-flow-dark'
+                }
+            });
+            
+            map.addControl(new (tt as any).NavigationControl(), 'top-left');
+            mapObj.current = map;
+            
+            map.on('load', () => {
+                setMapInitialized(true);
+            });
 
-    } catch (err) {
-      console.error('TomTom Map init error:', err);
-      setError('Map initialization failed. Check the console for details.');
-    }
+        } catch (err) {
+            console.error('TomTom Map init error:', err);
+            setError('Map initialization failed. Check the console for details.');
+        }
+    });
 
     return () => {
       mapObj.current?.remove();
@@ -78,42 +81,44 @@ export default function MapClient({
 
   // Update markers when they change
   useEffect(() => {
-    if (!mapObj.current) return;
+    if (!mapObj.current || !isMapInitialized) return;
     const map = mapObj.current;
+    
+    import('@tomtom-international/web-sdk-maps').then(tt => {
+        const currentMarkerIds = Object.keys(markerRefs.current);
+        const newMarkerIds = markers.map(m => m.id);
 
-    const currentMarkerIds = Object.keys(markerRefs.current);
-    const newMarkerIds = markers.map(m => m.id);
+        // Remove markers that are no longer in the props
+        currentMarkerIds.forEach(markerId => {
+        if (!newMarkerIds.includes(markerId)) {
+            markerRefs.current[markerId].remove();
+            delete markerRefs.current[markerId];
+        }
+        });
 
-    // Remove markers that are no longer in the props
-    currentMarkerIds.forEach(markerId => {
-      if (!newMarkerIds.includes(markerId)) {
-        markerRefs.current[markerId].remove();
-        delete markerRefs.current[markerId];
-      }
+        // Add new or update existing markers
+        markers.forEach(markerInfo => {
+        const { lat, lng, title, id } = markerInfo;
+        const lngLat: [number, number] = [lng, lat];
+        
+        if (markerRefs.current[id]) {
+            // If marker exists, just update its position
+            markerRefs.current[id].setLngLat(lngLat);
+        } else {
+            // Otherwise, create a new marker
+            const marker = new tt.Marker()
+            .setLngLat(lngLat)
+            .addTo(map);
+
+            const popup = new tt.Popup({ offset: 35 }).setText(title);
+            marker.setPopup(popup);
+
+            markerRefs.current[id] = marker;
+        }
+        });
     });
 
-    // Add new or update existing markers
-    markers.forEach(markerInfo => {
-      const { lat, lng, title, id } = markerInfo;
-      const lngLat: [number, number] = [lng, lat];
-      
-      if (markerRefs.current[id]) {
-        // If marker exists, just update its position
-        markerRefs.current[id].setLngLat(lngLat);
-      } else {
-        // Otherwise, create a new marker
-        const marker = new tt.Marker()
-          .setLngLat(lngLat)
-          .addTo(map);
-
-        const popup = new tt.Popup({ offset: 35 }).setText(title);
-        marker.setPopup(popup);
-
-        markerRefs.current[id] = marker;
-      }
-    });
-
-  }, [markers]);
+  }, [markers, isMapInitialized]);
 
 
   return (
