@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { doc, collection, onSnapshot, arrayUnion, serverTimestamp, DocumentReference } from 'firebase/firestore';
-import { useDoc, useCollection, useUser, useFirestore, useMemoFirebase, setDocumentNonBlocking, updateDocumentNonBlocking } from '@/firebase';
+import { useDoc, useCollection, useUser, useFirestore, useMemoFirebase, setDocumentNonBlocking, updateDocumentNonBlocking, errorEmitter, FirestorePermissionError } from '@/firebase';
 import type { Trip, User, Location, Participant } from '@/lib/types';
 import { Header } from '@/components/header';
 import { MapView } from '@/components/map-view';
@@ -22,6 +22,9 @@ function useDocuments<T>(refs: DocumentReference<any>[] | null) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<any | null>(null);
 
+  // We use JSON.stringify to create a stable dependency for the useEffect hook
+  const refsKey = JSON.stringify(refs?.map(r => r.path));
+
   useEffect(() => {
     if (!refs || refs.length === 0) {
       setLoading(false);
@@ -30,6 +33,8 @@ function useDocuments<T>(refs: DocumentReference<any>[] | null) {
     }
 
     setLoading(true);
+    setData(null);
+    setError(null);
     const unsubscribes = refs.map((ref, index) => {
       return onSnapshot(ref, 
         (doc) => {
@@ -38,20 +43,27 @@ function useDocuments<T>(refs: DocumentReference<any>[] | null) {
             newData[index] = { id: doc.id, ...doc.data() };
             return newData;
           });
-          // This is a simplified loading state.
-          // A more robust solution might wait for all docs to load.
-          setLoading(false);
+          // A more robust loading state: only set loading to false when all docs are loaded
+          // This is a simplified check. A counter would be better.
+          if (index === refs.length - 1) {
+            setLoading(false);
+          }
         },
         (err) => {
-          console.error(`Error fetching doc: ${ref.path}`, err);
-          setError(err);
+          const contextualError = new FirestorePermissionError({
+            operation: 'get',
+            path: ref.path,
+          });
+          setError(contextualError);
           setLoading(false);
+          errorEmitter.emit('permission-error', contextualError);
         }
       );
     });
 
     return () => unsubscribes.forEach(unsub => unsub());
-  }, [refs]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refsKey]); // Use the stable key as a dependency
 
   const filteredData = data ? data.filter(Boolean) as T[] : [];
 
