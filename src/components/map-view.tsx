@@ -9,28 +9,10 @@ type MapViewProps = {
   locations: Record<string, Location>;
 };
 
-export function MapView({ participants, locations }: MapViewProps) {
-  const firstLocatedUser = participants.find(p => locations[p.id]);
-  
-  const center = firstLocatedUser && locations[firstLocatedUser.id] 
-    ? { lat: locations[firstLocatedUser.id].lat, lng: locations[firstLocatedUser.id].lng }
-    : undefined; // Let MapClient use its default if no one has a location
-
-  const friends = participants
-    .filter(p => locations[p.id])
-    .map(p => {
-        const location = locations[p.id];
-        return {
-            id: p.id,
-            lat: location.lat,
-            lng: location.lng,
-            name: p.name || 'User'
-        };
-    });
-
+export function MapView(props: any) {
   return (
-    <div className="h-full w-full rounded-lg overflow-hidden">
-      <MapClient center={center} friends={friends} />
+    <div className="w-full h-full">
+      <MapClient {...props} />
     </div>
   );
 }
