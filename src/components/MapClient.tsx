@@ -2,93 +2,98 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import type { Map, Marker, Popup } from '@tomtom-international/web-sdk-maps';
+// TomTom CSS must be imported at top-level in a client component
 import '@tomtom-international/web-sdk-maps/dist/maps.css';
+
+type FriendLocation = {
+  id: string;
+  name: string;
+  lat: number;
+  lng: number;
+};
 
 type MapClientProps = {
   center?: { lat: number; lng: number };
   zoom?: number;
-  markers?: { lat: number; lng: number; title: string, id: string }[];
+  friends?: FriendLocation[];
 };
 
-export default function MapClient({ 
-  center = { lat: 12.9716, lng: 77.5946 }, 
+export default function MapClient({
+  center = { lat: 12.9716, lng: 77.5946 }, // Bangalore default
   zoom = 12,
-  markers = []
+  friends = [],
 }: MapClientProps) {
-  const mapRef = useRef<HTMLDivElement | null>(null);
-  // Use a state to hold the map instance to ensure it's available for cleanup
-  const [mapInstance, setMapInstance] = useState<Map | null>(null);
-  const markerRefs = useRef<Record<string, Marker>>({});
+  const mapContainerRef = useRef<HTMLDivElement | null>(null);
+  const mapInstanceRef = useRef<Map | null>(null);
+  const friendsMarkersRef = useRef<Marker[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [isMapInitialized, setMapInitialized] = useState(false);
+  const [isReady, setIsReady] = useState(false);
 
   useEffect(() => {
-    // TomTom SDK must only be run in the browser, as it relies on the 'window' object.
-    // This effect hook ensures this code does not run during server-side rendering (SSR).
-    if (typeof window === 'undefined' || !mapRef.current) {
-        return;
-    }
+    // Run only in browser
+    if (typeof window === 'undefined') return;
+    if (!mapContainerRef.current) return;
 
     const apiKey = process.env.NEXT_PUBLIC_TOMTOM_API_KEY;
     if (!apiKey) {
-      const msg = 'TomTom API key is missing. Please add NEXT_PUBLIC_TOMTOM_API_KEY to your .env file and restart the dev server.';
+      const msg =
+        'TomTom API key missing. Add NEXT_PUBLIC_TOMTOM_API_KEY to .env file and restart `npm run dev`.';
       console.error(msg);
       setError(msg);
       return;
     }
 
+    let isCancelled = false;
     let map: Map;
 
-    // Use an async IIFE (Immediately Invoked Function Expression) to handle the dynamic import
     (async () => {
-        try {
-            // Dynamically import the TomTom library only on the client-side
-            const tt = await import('@tomtom-international/web-sdk-maps');
+      try {
+        // dynamic import – avoids SSR/window problems
+        const tt = await import('@tomtom-international/web-sdk-maps');
 
-            // If a map instance already exists, do not re-initialize
-            if (mapInstance) return;
+        if (!mapContainerRef.current || isCancelled) return;
 
-            map = tt.map({
-                key: apiKey,
-                container: mapRef.current!,
-                center: [center.lng, center.lat],
-                zoom,
-                style: {
-                    map: 'basic-dark',
-                    poi: 'poi-dark',
-                    trafficIncidents: 'traffic-incidents-dark',
-                    trafficFlow: 'traffic-flow-dark'
-                }
-            });
-            
-            map.addControl(new (tt as any).NavigationControl(), 'top-left');
-            
-            map.on('load', () => {
-                setMapInitialized(true);
-            });
+        map = tt.map({
+          key: apiKey,
+          container: mapContainerRef.current,
+          center: [center.lng, center.lat], // [lng, lat]
+          zoom,
+          style: {
+            map: 'basic-dark',
+            poi: 'poi-dark',
+            trafficIncidents: 'traffic-incidents-dark',
+            trafficFlow: 'traffic-flow-dark'
+          }
+        });
 
-            setMapInstance(map); // Save the map instance to state
+        mapInstanceRef.current = map;
 
-        } catch (err) {
-            // Throwing a raw object (like 'err' here) can cause a generic '[object Object]' error in Next.js.
-            // By catching it, we can log the full object for debugging and display a user-friendly string.
-            console.error('TomTom Map initialization error:', err);
-            const msg =
-              err instanceof Error
-                ? err.message
-                : typeof err === 'string'
-                ? err
-                : JSON.stringify(err);
-            setError(`Map failed to load: ${msg}`);
-        }
+        // Optional controls
+        map.addControl(new tt.NavigationControl());
+
+        map.on('load', () => {
+            if (!isCancelled) {
+                setIsReady(true);
+            }
+        });
+        
+      } catch (err: any) {
+        console.error('TomTom map init error:', err);
+        const msg =
+          err instanceof Error
+            ? err.message
+            : typeof err === 'string'
+            ? err
+            : JSON.stringify(err);
+        setError(`Map failed to load: ${msg}`);
+      }
     })();
 
-    // Cleanup function to remove the map when the component unmounts
     return () => {
-      // Use the map instance from state for cleanup
-      if (mapInstance) {
-        mapInstance.remove();
-        setMapInstance(null);
+      isCancelled = true;
+      if (mapInstanceRef.current) {
+        mapInstanceRef.current.remove();
+        mapInstanceRef.current = null;
       }
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -96,59 +101,55 @@ export default function MapClient({
 
   // Update center when prop changes
   useEffect(() => {
-    if (mapInstance && center) {
-      mapInstance.flyTo({ center: [center.lng, center.lat], zoom });
+    if (mapInstanceRef.current && isReady) {
+      mapInstanceRef.current.flyTo({ center: [center.lng, center.lat], zoom });
     }
-  }, [center, zoom, mapInstance]);
+  }, [center, zoom, isReady]);
 
-
-  // Update markers when they change
+  // Update markers whenever friends list changes
   useEffect(() => {
-    if (!mapInstance || !isMapInitialized) return;
-    
-    // Asynchronously import the SDK again to use its classes like Marker and Popup
-    import('@tomtom-international/web-sdk-maps').then(tt => {
-        const currentMarkerIds = Object.keys(markerRefs.current);
-        const newMarkerIds = markers.map(m => m.id);
+    const map = mapInstanceRef.current;
+    if (!map || !isReady) return;
 
-        // Remove markers that are no longer in the props
-        currentMarkerIds.forEach(markerId => {
-            if (!newMarkerIds.includes(markerId)) {
-                markerRefs.current[markerId].remove();
-                delete markerRefs.current[markerId];
-            }
-        });
+    // Clear existing markers
+    friendsMarkersRef.current.forEach((m) => m.remove());
+    friendsMarkersRef.current = [];
 
-        // Add new or update existing markers
-        markers.forEach(markerInfo => {
-            const { lat, lng, title, id } = markerInfo;
-            const lngLat: [number, number] = [lng, lat];
-            
-            if (markerRefs.current[id]) {
-                // If marker exists, just update its position
-                markerRefs.current[id].setLngLat(lngLat);
-            } else {
-                // Otherwise, create a new marker
-                const marker = new tt.Marker()
-                    .setLngLat(lngLat)
-                    .addTo(mapInstance);
+    (async () => {
+      const tt = await import('@tomtom-international/web-sdk-maps');
 
-                const popup = new tt.Popup({ offset: 35 }).setText(title);
-                marker.setPopup(popup);
+      friends.forEach((friend) => {
+        const marker = new tt.Marker()
+          .setLngLat([friend.lng, friend.lat])
+          .setPopup(
+            new tt.Popup({ offset: 30 }).setHTML(
+              `<div style="font-size:12px;"><strong>${friend.name}</strong></div>`
+            )
+          )
+          .addTo(map);
 
-                markerRefs.current[id] = marker;
-            }
-        });
-    });
+        friendsMarkersRef.current.push(marker);
+      });
 
-  }, [markers, isMapInitialized, mapInstance]);
-
+      if (friends.length > 0) {
+        const lats = friends.map((f) => f.lat);
+        const lngs = friends.map((f) => f.lng);
+        const minLat = Math.min(...lats);
+        const maxLat = Math.max(...lats);
+        const minLng = Math.min(...lngs);
+        const maxLng = Math.max(...lngs);
+        const bounds: [number, number, number, number] = [minLng, minLat, maxLng, maxLat];
+        
+        map.fitBounds(bounds, { padding: 80, maxZoom: 15 });
+      }
+    })();
+  }, [friends, isReady]);
 
   return (
-    <div style={{ height: '100%', width: '100%', minHeight: 400, position: 'relative' }} className="bg-muted rounded-lg border">
+    <div className="relative w-full h-full min-h-[400px] rounded-lg overflow-hidden bg-muted border">
       {error && (
         <div className="absolute inset-0 z-10 p-8 rounded-md bg-destructive/90 text-destructive-foreground flex flex-col items-center justify-center text-center">
-            <h3 className="text-xl font-bold mb-4">Map Error</h3>
+           <h3 className="text-xl font-bold mb-4">Map Error</h3>
             <p className="mb-4">The map could not be loaded. This might be due to an invalid API key, network issues, or a configuration problem.</p>
             <div className="text-left bg-background text-foreground p-4 rounded-md max-w-lg w-full font-code text-sm">
                 <p className="font-bold mb-2">How to fix this:</p>
@@ -162,12 +163,12 @@ export default function MapClient({
             <p className="mt-4 text-sm text-destructive-foreground/80">{error}</p>
         </div>
       )}
-      <div ref={mapRef} id="map" style={{ width: '100%', height: '100%' }} />
-       {!isMapInitialized && !error && (
+      {!error && !isReady && (
         <div className="absolute inset-0 flex items-center justify-center bg-background/80">
           <p className="text-muted-foreground">Loading Map...</p>
         </div>
       )}
+      <div ref={mapContainerRef} className="w-full h-full" />
     </div>
   );
 }

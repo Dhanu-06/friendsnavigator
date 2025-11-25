@@ -1,4 +1,3 @@
-
 'use client';
 
 import React from 'react';
@@ -11,13 +10,13 @@ type MapViewProps = {
 };
 
 export function MapView({ participants, locations }: MapViewProps) {
-  // Find the first participant with a location to center the map
   const firstLocatedUser = participants.find(p => locations[p.id]);
+  
   const center = firstLocatedUser && locations[firstLocatedUser.id] 
     ? { lat: locations[firstLocatedUser.id].lat, lng: locations[firstLocatedUser.id].lng }
-    : { lat: 12.9716, lng: 77.5946 }; // Default center (Bangalore)
+    : undefined; // Let MapClient use its default if no one has a location
 
-  const markers = participants
+  const friends = participants
     .filter(p => locations[p.id])
     .map(p => {
         const location = locations[p.id];
@@ -25,13 +24,13 @@ export function MapView({ participants, locations }: MapViewProps) {
             id: p.id,
             lat: location.lat,
             lng: location.lng,
-            title: p.name || 'User'
+            name: p.name || 'User'
         };
     });
 
   return (
     <div className="h-full w-full rounded-lg overflow-hidden">
-      <MapClient center={center} zoom={12} markers={markers} />
+      <MapClient center={center} friends={friends} />
     </div>
   );
 }
