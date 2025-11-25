@@ -18,12 +18,10 @@ service cloud.firestore {
 
     // Main collection rules
     match /users/{userId} {
-      // A user can get their own profile.
-      // Other users can get a profile if they share a trip.
-      allow get: if isOwner(userId) || 
-                  exists(/databases/$(database)/documents/trips/{tripId}
-                    where request.auth.uid in get(/databases/$(database)/documents/trips/{tripId}).data.participantIds && 
-                          userId in get(/databases/$(database)/documents/trips/{tripId}).data.participantIds);
+      // Allow any authenticated user to read any user's profile.
+      // This is necessary for features like showing participant names/avatars in a trip.
+      // The data in a user profile (name, email, avatar) is considered non-sensitive public info within the app's context.
+      allow get: if isSignedIn();
       allow list: if false; // Never allow listing all users.
       allow create: if isOwner(userId);
       allow update, delete: if isOwner(userId);
@@ -48,6 +46,17 @@ service cloud.firestore {
         allow create, update: if isOwner(userId);
         // A user can delete their own location data.
         allow delete: if isOwner(userId);
+      }
+       // Participants subcollection
+      match /participants/{userId} {
+        // Any trip participant can read the status of any other participant.
+        allow get: if isTripParticipant(tripId);
+        // A user can only create or update their own participant document.
+        allow create, update: if isOwner(userId);
+        // Deletion might be restricted to the trip owner. For now, same as write.
+        allow delete: if isOwner(userId);
+        // Disallow listing all participants at once for security.
+        allow list: if false;
       }
     }
   }
