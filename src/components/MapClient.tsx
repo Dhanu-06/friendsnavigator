@@ -87,7 +87,9 @@ export default function MapClient({
       };
 
       script.onload = () => {
-        initMap();
+        if((window as any).google) {
+            initMap();
+        }
       };
 
       document.head.appendChild(script);
@@ -119,7 +121,7 @@ export default function MapClient({
                     <li>Create a <b className="text-primary">.env.local</b> file in your project's root directory.</li>
                     <li>Add your API key to the file: <br /><code className="bg-muted px-1 py-0.5 rounded">NEXT_PUBLIC_GOOGLE_MAPS_API_KEY=YOUR_KEY_HERE</code></li>
                     <li>In Google Cloud Console, ensure the <b className="text-primary">"Maps JavaScript API"</b> is enabled.</li>
-                    <li>Under <b className="text-primary">Application restrictions</b>, add <code className="bg-muted px-1 py-0.5 rounded">http://localhost:3000/*</code> to the "HTTP referrers".</li>
+                    <li>Under <b className="text-primary">Application restrictions</b>, add <code className="bg-muted px-1 py-0.5 rounded">http://localhost:9002/*</code> (or your dev port) to the "HTTP referrers".</li>
                     <li>Ensure <b className="text-primary">billing is enabled</b> for your Google Cloud project.</li>
                     <li><b className="text-primary">Restart your development server</b> after editing the <code className="bg-muted px-1 py-0.5 rounded">.env.local</code> file.</li>
                 </ol>
@@ -136,3 +138,5 @@ export default function MapClient({
     </div>
   );
 }
+
+    

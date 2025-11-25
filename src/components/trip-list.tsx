@@ -50,7 +50,7 @@ export function TripList({ trips, isLoading }: TripListProps) {
             <CardTitle>{trip.name}</CardTitle>
             <CardDescription className="flex items-center gap-2 pt-1">
               <MapPin className="h-4 w-4" />
-              {trip.destination}
+              {trip.destination.name}
             </CardDescription>
           </CardHeader>
           <CardFooter>
@@ -65,3 +65,5 @@ export function TripList({ trips, isLoading }: TripListProps) {
     </div>
   );
 }
+
+    
