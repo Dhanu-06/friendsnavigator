@@ -1,11 +1,14 @@
+
 'use client';
 
 import React, { useEffect, useRef, useState } from 'react';
+import tt from '@tomtom-international/web-sdk-maps';
+import '@tomtom-international/web-sdk-maps/dist/maps.css';
 
 type MapClientProps = {
   center?: { lat: number; lng: number };
   zoom?: number;
-  markers?: { lat: number; lng: number; title: string }[];
+  markers?: { lat: number; lng: number; title: string, id: string }[];
 };
 
 export default function MapClient({ 
@@ -14,115 +17,119 @@ export default function MapClient({
   markers = []
 }: MapClientProps) {
   const mapRef = useRef<HTMLDivElement | null>(null);
+  const mapObj = useRef<tt.Map | null>(null);
+  const markerRefs = useRef<Record<string, tt.Marker>>({});
   const [error, setError] = useState<string | null>(null);
   const [isMapInitialized, setMapInitialized] = useState(false);
 
   useEffect(() => {
-    const key = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
-    if (!key) {
-      setError('The Google Maps API key is missing. Please add NEXT_PUBLIC_GOOGLE_MAPS_API_KEY to your .env.local file and restart the server.');
-      console.error('No NEXT_PUBLIC_GOOGLE_MAPS_API_KEY found in .env.local');
+    const apiKey = process.env.NEXT_PUBLIC_TOMTOM_API_KEY;
+    if (!apiKey) {
+      setError('TomTom API key is missing. Please add NEXT_PUBLIC_TOMTOM_API_KEY to your .env.local file and restart the server.');
+      console.error('No NEXT_PUBLIC_TOMTOM_API_KEY found in .env.local');
       return;
     }
 
-    const existing = document.getElementById('gmaps-script') as HTMLScriptElement | null;
+    if (!mapRef.current) return;
     
-    const initMap = () => {
-      try {
-        if (!mapRef.current || !(window as any).google?.maps) return;
-        
-        const mapInstance = new (window as any).google.maps.Map(mapRef.current, {
-          center,
-          zoom,
-           // Dark mode styles
-          styles: [
-            { elementType: "geometry", stylers: [{ color: "#242f3e" }] },
-            { elementType: "labels.text.stroke", stylers: [{ color: "#242f3e" }] },
-            { elementType: "labels.text.fill", stylers: [{ color: "#746855" }] },
-            { featureType: "administrative.locality", elementType: "labels.text.fill", stylers: [{ color: "#d59563" }] },
-            { featureType: "poi", elementType: "labels.text.fill", stylers: [{ color: "#d59563" }] },
-            { featureType: "poi.park", elementType: "geometry", stylers: [{ color: "#263c3f" }] },
-            { featureType: "poi.park", elementType: "labels.text.fill", stylers: [{ color: "#6b9a76" }] },
-            { featureType: "road", elementType: "geometry", stylers: [{ color: "#38414e" }] },
-            { featureType: "road", elementType: "geometry.stroke", stylers: [{ color: "#212a37" }] },
-            { featureType: "road", elementType: "labels.text.fill", stylers: [{ color: "#9ca5b3" }] },
-            { featureType: "road.highway", elementType: "geometry", stylers: [{ color: "#746855" }] },
-            { featureType: "road.highway", elementType: "geometry.stroke", stylers: [{ color: "#1f2835" }] },
-            { featureType: "road.highway", elementType: "labels.text.fill", stylers: [{ color: "#f3d19c" }] },
-            { featureType: "transit", elementType: "geometry", stylers: [{ color: "#2f3948" }] },
-            { featureType: "transit.station", elementType: "labels.text.fill", stylers: [{ color: "#d59563" }] },
-            { featureType: "water", elementType: "geometry", stylers: [{ color: "#17263c" }] },
-            { featureType: "water", elementType: "labels.text.fill", stylers: [{ color: "#515c6d" }] },
-            { featureType: "water", elementType: "labels.text.stroke", stylers: [{ color: "#17263c" }] },
-          ],
-          gestureHandling: 'greedy',
-          disableDefaultUI: true,
-        });
+    // Prevent re-initialization
+    if (mapObj.current) return; 
 
-        markers.forEach(markerInfo => {
-           new (window as any).google.maps.Marker({
-            position: { lat: markerInfo.lat, lng: markerInfo.lng },
-            map: mapInstance,
-            title: markerInfo.title,
-          });
-        });
-        
-        setMapInitialized(true);
-
-      } catch (err) {
-        console.error('Map init error:', err);
-        setError('Map initialization failed — see console.');
-      }
-    };
-
-    if (!existing) {
-      const script = document.createElement('script');
-      script.id = 'gmaps-script';
-      script.src = `https://maps.googleapis.com/maps/api/js?key=${key}&libraries=places`;
-      script.async = true;
-      script.defer = true;
-
-      script.onerror = () => {
-        setError('Google Maps script failed to load. Check the browser console for an "InvalidKeyMapError" or network errors, and verify your API key settings in the Google Cloud Console.');
-      };
-
-      script.onload = () => {
-        if((window as any).google) {
-            initMap();
+    try {
+      const map = tt.map({
+        key: apiKey,
+        container: mapRef.current,
+        center: [center.lng, center.lat],
+        zoom,
+        style: {
+           map: 'basic-dark',
+           poi: 'poi-dark',
+           trafficIncidents: 'traffic-incidents-dark',
+           trafficFlow: 'traffic-flow-dark'
         }
-      };
+      });
+      
+      map.addControl(new tt.NavigationControl(), 'top-left');
+      mapObj.current = map;
+      
+      map.on('load', () => {
+        setMapInitialized(true);
+      });
 
-      document.head.appendChild(script);
-    } else {
-      if ((window as any).google && (window as any).google.maps) {
-        initMap();
-      } else {
-        existing.addEventListener('load', initMap);
-      }
+    } catch (err) {
+      console.error('TomTom Map init error:', err);
+      setError('Map initialization failed. Check the console for details.');
     }
 
     return () => {
-      // Clean up the event listener if the component unmounts
-      if (existing) {
-        existing.removeEventListener('load', initMap);
-      }
+      mapObj.current?.remove();
+      mapObj.current = null;
     };
-  }, [center, zoom, markers]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Run only once on mount
+
+  // Update center when prop changes
+  useEffect(() => {
+    if (mapObj.current && center) {
+      mapObj.current.flyTo({ center: [center.lng, center.lat], zoom });
+    }
+  }, [center, zoom]);
+
+
+  // Update markers when they change
+  useEffect(() => {
+    if (!mapObj.current) return;
+    const map = mapObj.current;
+
+    const currentMarkerIds = Object.keys(markerRefs.current);
+    const newMarkerIds = markers.map(m => m.id);
+
+    // Remove markers that are no longer in the props
+    currentMarkerIds.forEach(markerId => {
+      if (!newMarkerIds.includes(markerId)) {
+        markerRefs.current[markerId].remove();
+        delete markerRefs.current[markerId];
+      }
+    });
+
+    // Add new or update existing markers
+    markers.forEach(markerInfo => {
+      const { lat, lng, title, id } = markerInfo;
+      const lngLat: [number, number] = [lng, lat];
+      
+      if (markerRefs.current[id]) {
+        // If marker exists, just update its position
+        markerRefs.current[id].setLngLat(lngLat);
+      } else {
+        // Otherwise, create a new marker
+        const marker = new tt.Marker()
+          .setLngLat(lngLat)
+          .addTo(map);
+
+        const popup = new tt.Popup({ offset: 35 }).setText(title);
+        marker.setPopup(popup);
+
+        markerRefs.current[id] = marker;
+      }
+    });
+
+  }, [markers]);
+
 
   return (
     <div style={{ height: '100%', width: '100%', minHeight: 400, position: 'relative' }} className="bg-muted rounded-lg border">
       {error && (
         <div className="absolute inset-0 z-10 p-8 rounded-md bg-destructive/90 text-destructive-foreground flex flex-col items-center justify-center text-center">
-            <h3 className="text-xl font-bold mb-4">Google Maps Error</h3>
-            <p className="mb-4">The map could not be loaded. This is usually caused by a missing or invalid Google Maps API key.</p>
+            <h3 className="text-xl font-bold mb-4">TomTom Maps Error</h3>
+            <p className="mb-4">The map could not be loaded. This is usually caused by a missing or invalid TomTom API key.</p>
             <div className="text-left bg-background text-foreground p-4 rounded-md max-w-lg w-full font-code text-sm">
                 <p className="font-bold mb-2">To fix this:</p>
                 <ol className="list-decimal list-inside space-y-2">
+                    <li>Go to the <b className="text-primary">TomTom Developer Portal</b> and create a free account.</li>
+                    <li>Create a new application and get your **API Key**.</li>
                     <li>Create a <b className="text-primary">.env.local</b> file in your project's root directory.</li>
-                    <li>Add your API key to the file: <br /><code className="bg-muted px-1 py-0.5 rounded">NEXT_PUBLIC_GOOGLE_MAPS_API_KEY=YOUR_KEY_HERE</code></li>
-                    <li>In Google Cloud Console, ensure the <b className="text-primary">"Maps JavaScript API"</b> is enabled.</li>
-                    <li>Under <b className="text-primary">Application restrictions</b>, add <code className="bg-muted px-1 py-0.5 rounded">http://localhost:9002/*</code> (or your dev port) to the "HTTP referrers".</li>
-                    <li>Ensure <b className="text-primary">billing is enabled</b> for your Google Cloud project.</li>
+                    <li>Add your API key to the file: <br /><code className="bg-muted px-1 py-0.5 rounded">NEXT_PUBLIC_TOMTOM_API_KEY=YOUR_KEY_HERE</code></li>
+                    <li>In the TomTom Developer Portal, make sure your key is enabled for the domains you're using (e.g. `localhost`).</li>
                     <li><b className="text-primary">Restart your development server</b> after editing the <code className="bg-muted px-1 py-0.5 rounded">.env.local</code> file.</li>
                 </ol>
             </div>
@@ -138,5 +145,3 @@ export default function MapClient({
     </div>
   );
 }
-
-    

@@ -1,11 +1,12 @@
+
 'use client';
 
 import React from 'react';
-import type { User, Location } from '@/lib/types';
+import type { Participant, Location } from '@/lib/types';
 import MapClient from './MapClient';
 
 type MapViewProps = {
-  participants: User[];
+  participants: Participant[];
   locations: Record<string, Location>;
 };
 
@@ -17,13 +18,14 @@ export function MapView({ participants, locations }: MapViewProps) {
     : { lat: 12.9716, lng: 77.5946 }; // Default center (Bangalore)
 
   const markers = participants
-    .filter(user => locations[user.id])
-    .map(user => {
-        const location = locations[user.id];
+    .filter(p => locations[p.id])
+    .map(p => {
+        const location = locations[p.id];
         return {
+            id: p.id,
             lat: location.lat,
             lng: location.lng,
-            title: user.name || 'User'
+            title: p.name || 'User'
         };
     });
 
