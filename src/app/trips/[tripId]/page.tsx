@@ -125,10 +125,9 @@ export default function TripPage() {
   useEffect(() => {
     if (!user || !firestore || !tripId || areParticipantsLoading) return;
 
-    // We check participantsData which is now loaded safely.
-    const myParticipantDoc = participantsData?.find(p => p.id === user.uid);
-
     const updateLocation = () => {
+        // We check participantsData which is now loaded safely.
+        const myParticipantDoc = participantsData?.find(p => p.id === user.uid);
       navigator.geolocation.getCurrentPosition(
         (position) => {
           const { latitude, longitude } = position.coords;
@@ -170,7 +169,7 @@ export default function TripPage() {
     const intervalId = setInterval(updateLocation, 15000); // Update every 15 seconds
 
     return () => clearInterval(intervalId);
-  }, [user, firestore, tripId, areParticipantsLoading]);
+  }, [user, firestore, tripId, areParticipantsLoading, participantsData]);
 
 
   const copyJoinCode = () => {
