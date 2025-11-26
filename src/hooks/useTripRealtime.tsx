@@ -1,6 +1,6 @@
 // src/hooks/useTripRealtime.tsx
 'use client';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { db } from '@/firebase/client';
 import {
   collection,
@@ -91,7 +91,7 @@ export default function useTripRealtime(tripId?: string) {
   }, [tripId]);
 
   // join or update a participant
-  async function joinOrUpdateParticipant(tripIdStr: string, p: Participant) {
+  const joinOrUpdateParticipant = useCallback(async (tripIdStr: string, p: Participant) => {
     if (process.env.NEXT_PUBLIC_USE_FIREBASE_EMULATOR !== 'true') {
         const t = getTripById(tripIdStr);
         if (t) {
@@ -121,9 +121,9 @@ export default function useTripRealtime(tripId?: string) {
       }
       return { ok: false, error: err };
     }
-  }
+  }, []);
 
-  async function sendMessage(tripIdStr: string, payload:{senderId:string, text:string, userName: string, avatarUrl: string}) {
+  const sendMessage = useCallback(async (tripIdStr: string, payload:{senderId:string, text:string, userName: string, avatarUrl: string}) => {
      if (process.env.NEXT_PUBLIC_USE_FIREBASE_EMULATOR !== 'true') {
       setMessages((s)=>[...s, { id:String(Date.now()), ...payload, timestamp: new Date().toLocaleTimeString() }]);
       return { ok: false, error: new Error("Emulator not enabled") };
@@ -138,9 +138,9 @@ export default function useTripRealtime(tripId?: string) {
       setMessages((s)=>[...s, { id:String(Date.now()), ...payload, timestamp: new Date().toLocaleTimeString() }]);
       return { ok:false, error:err };
     }
-  }
+  }, []);
 
-  async function addExpense(tripIdStr: string, payload:{paidBy:string,amount:number,label:string}) {
+  const addExpense = useCallback(async (tripIdStr: string, payload:{paidBy:string,amount:number,label:string}) => {
      if (process.env.NEXT_PUBLIC_USE_FIREBASE_EMULATOR !== 'true') {
        setExpenses((s)=>[...s, { id:String(Date.now()), ...payload }]);
        return { ok: false, error: new Error("Emulator not enabled") };
@@ -153,7 +153,7 @@ export default function useTripRealtime(tripId?: string) {
       setExpenses((s)=>[...s, { id:String(Date.now()), ...payload }]);
       return { ok:false, error:err };
     }
-  }
+  }, []);
 
   return {
     participants,
