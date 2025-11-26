@@ -40,8 +40,6 @@ export default function useTripRealtime(tripId?: string) {
   useEffect(() => {
     if (!tripId) return;
 
-    // The getFirebaseInstances() function now handles the emulator connection logic.
-    // If not using emulator, or if firestore is unavailable, we rely on local storage.
     if (!useEmulator) {
         if (typeof window !== 'undefined') {
           console.warn('Realtime hook: Emulator disabled. Using local fallback for all data.');

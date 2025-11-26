@@ -1,5 +1,6 @@
-
 // src/lib/tripStore.ts
+import { getTripLocal, saveTripLocalOnly } from "./tripStoreFallback";
+
 export type Trip = {
   id: string;
   name: string;
@@ -32,9 +33,15 @@ export function saveTrip(trip: Trip) {
   const trips = getTrips();
   trips[trip.id] = trip;
   localStorage.setItem(TRIPS_STORAGE_KEY, JSON.stringify(trips));
+  // Also save via fallback in case we are trying to sync with emulator
+  saveTripLocalOnly(trip.id, trip);
 }
 
 export function getTripById(id: string): Trip | null {
+  // Prioritize local storage for consistency in the current session
+  const trip = getTripLocal(id);
+  if (trip) return trip;
+  
   const trips = getTrips();
   return trips[id] ?? null;
 }
@@ -45,13 +52,12 @@ export function getRecentTrips(): Trip[] {
 }
 
 export async function fetchTripByCode(code: string): Promise<Trip | null> {
-  // This is an async function to mimic a real API call
+  // This is an async function to mimic a real API call, using the local fallback
   return Promise.resolve(getTripById(code));
 }
 
 export async function joinTrip(tripId: string, user: { id: string; name: string; avatarUrl?: string }): Promise<void> {
-  const trips = getTrips();
-  const trip = trips[tripId];
+  const trip = getTripById(tripId);
   
   if (!trip) {
     throw new Error("Trip not found. It may have been deleted.");
@@ -66,18 +72,4 @@ export async function joinTrip(tripId: string, user: { id: string; name: string;
   saveTrip(trip);
   
   return Promise.resolve();
-}
-
-export async function saveTripLocalOnly(tripId: string, data: Trip) {
-  const raw = localStorage.getItem(TRIPS_STORAGE_KEY) || "{}";
-  const map = JSON.parse(raw);
-  map[tripId] = data;
-  localStorage.setItem(TRIPS_STORAGE_KEY, JSON.stringify(map));
-  return { source: "local" };
-}
-
-export function getTripLocal(tripId: string) {
-  const raw = localStorage.getItem(TRIPS_STORAGE_KEY) || "{}";
-  const map = JSON.parse(raw);
-  return map[tripId] || null;
 }
