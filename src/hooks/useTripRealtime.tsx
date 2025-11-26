@@ -15,7 +15,7 @@ import {
   getDoc,
   getDocs,
 } from 'firebase/firestore';
-import { getTripById, saveTrip as saveTripLocal } from '@/lib/tripStore';
+import { getTripById, saveTrip as saveTripLocal, Trip } from '@/lib/tripStore';
 import { getCurrentUser } from '@/lib/localAuth';
 
 export type Participant = {
@@ -39,11 +39,14 @@ export default function useTripRealtime(tripId?: string) {
 
   useEffect(() => {
     if (!tripId) return;
+
     if (process.env.NEXT_PUBLIC_USE_FIREBASE_EMULATOR !== 'true') {
-        console.warn('Realtime hook: Firestore emulator not enabled, using local fallback');
+        console.warn('Realtime hook: Firestore emulator not enabled, using local fallback for all data.');
         const t = getTripById(tripId);
         if (t) {
             setParticipants(t.participants ?? []);
+            setMessages(t.messages ?? []);
+            setExpenses(t.expenses ?? []);
         }
         return;
     }
@@ -90,17 +93,28 @@ export default function useTripRealtime(tripId?: string) {
     }
   }, [tripId]);
 
+  const updateLocalTrip = (tripId: string, update: (trip: Trip) => Trip) => {
+    const trip = getTripById(tripId);
+    if (trip) {
+      const updatedTrip = update(trip);
+      saveTripLocal(updatedTrip);
+      setParticipants([...(updatedTrip.participants ?? [])]);
+      setMessages([...(updatedTrip.messages ?? [])]);
+      setExpenses([...(updatedTrip.expenses ?? [])]);
+    }
+  };
+
   // join or update a participant
   const joinOrUpdateParticipant = useCallback(async (tripIdStr: string, p: Participant) => {
     if (process.env.NEXT_PUBLIC_USE_FIREBASE_EMULATOR !== 'true') {
-        const t = getTripById(tripIdStr);
-        if (t) {
-            const idx = (t.participants || []).findIndex(x=>x.id===p.id);
-            if (idx>=0) t.participants[idx] = { ...t.participants[idx], ...p };
-            else t.participants.push(p);
-            saveTripLocal(t);
-            setParticipants([...t.participants]);
-        }
+        updateLocalTrip(tripIdStr, (trip) => {
+          const newParticipants = [...(trip.participants ?? [])];
+          const idx = newParticipants.findIndex(x => x.id === p.id);
+          if (idx >= 0) newParticipants[idx] = { ...newParticipants[idx], ...p };
+          else newParticipants.push(p);
+          trip.participants = newParticipants;
+          return trip;
+        });
         return { ok: false, error: new Error("Emulator not enabled") };
     }
     try {
@@ -111,22 +125,25 @@ export default function useTripRealtime(tripId?: string) {
       return { ok: true };
     } catch (err) {
       console.warn('joinOrUpdateParticipant failed, local fallback', err);
-      const t = getTripById(tripIdStr);
-      if (t) {
-        const idx = (t.participants || []).findIndex(x=>x.id===p.id);
-        if (idx>=0) t.participants[idx] = { ...t.participants[idx], ...p };
-        else t.participants.push(p);
-        saveTripLocal(t);
-        setParticipants([...t.participants]);
-      }
+      updateLocalTrip(tripIdStr, (trip) => {
+        const newParticipants = [...(trip.participants ?? [])];
+        const idx = newParticipants.findIndex(x => x.id === p.id);
+        if (idx >= 0) newParticipants[idx] = { ...newParticipants[idx], ...p };
+        else newParticipants.push(p);
+        trip.participants = newParticipants;
+        return trip;
+      });
       return { ok: false, error: err };
     }
   }, []);
 
   const sendMessage = useCallback(async (tripIdStr: string, payload:{senderId:string, text:string, userName: string, avatarUrl: string}) => {
      if (process.env.NEXT_PUBLIC_USE_FIREBASE_EMULATOR !== 'true') {
-      setMessages((s)=>[...s, { id:String(Date.now()), ...payload, timestamp: new Date().toLocaleTimeString() }]);
-      return { ok: false, error: new Error("Emulator not enabled") };
+        updateLocalTrip(tripIdStr, (trip) => {
+          trip.messages = [...(trip.messages ?? []), { id: String(Date.now()), ...payload, createdAt: new Date().toISOString() }];
+          return trip;
+        });
+        return { ok: false, error: new Error("Emulator not enabled") };
     }
     try {
       await addDoc(collection(db, 'trips', tripIdStr, 'messages'), {
@@ -135,14 +152,20 @@ export default function useTripRealtime(tripId?: string) {
       return { ok: true };
     } catch (err) {
       console.warn('sendMessage failed, local fallback', err);
-      setMessages((s)=>[...s, { id:String(Date.now()), ...payload, timestamp: new Date().toLocaleTimeString() }]);
+      updateLocalTrip(tripIdStr, (trip) => {
+        trip.messages = [...(trip.messages ?? []), { id: String(Date.now()), ...payload, createdAt: new Date().toISOString() }];
+        return trip;
+      });
       return { ok:false, error:err };
     }
   }, []);
 
   const addExpense = useCallback(async (tripIdStr: string, payload:{paidBy:string,amount:number,label:string}) => {
      if (process.env.NEXT_PUBLIC_USE_FIREBASE_EMULATOR !== 'true') {
-       setExpenses((s)=>[...s, { id:String(Date.now()), ...payload }]);
+       updateLocalTrip(tripIdStr, (trip) => {
+          trip.expenses = [...(trip.expenses ?? []), { id: String(Date.now()), ...payload }];
+          return trip;
+        });
        return { ok: false, error: new Error("Emulator not enabled") };
     }
     try {
@@ -150,7 +173,10 @@ export default function useTripRealtime(tripId?: string) {
       return { ok:true };
     } catch (err) {
       console.warn('addExpense failed, local fallback', err);
-      setExpenses((s)=>[...s, { id:String(Date.now()), ...payload }]);
+      updateLocalTrip(tripIdStr, (trip) => {
+          trip.expenses = [...(trip.expenses ?? []), { id: String(Date.now()), ...payload }];
+          return trip;
+        });
       return { ok:false, error:err };
     }
   }, []);

@@ -11,6 +11,7 @@ export type Trip = {
   participants: any[]; // Consider defining a Participant type
   messages: any[];
   expenses: any[];
+  createdAt?: number;
 };
 
 const TRIPS_STORAGE_KEY = 'friendsnavigator_trips';
