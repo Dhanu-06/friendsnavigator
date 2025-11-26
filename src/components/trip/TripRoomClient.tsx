@@ -6,8 +6,6 @@ import dynamic from "next/dynamic";
 import useTripRealtime from "@/hooks/useTripRealtime";
 import useLiveLocation from "@/hooks/useLiveLocation";
 import { getTrip } from "@/lib/storeAdapter";
-import { openAppOrFallback } from "@/lib/appLink";
-import { reverseGeocodeClient } from "@/lib/reverseGeocode";
 
 const TomTomMapController = dynamic(() => import("@/components/trip/TomTomMapController"), { ssr: false });
 
@@ -38,10 +36,6 @@ export default function TripRoomClient({ tripId, currentUser, initialTrip = null
 
   // Local state for ETAs reported by server (matrix) or fallback
   const [etas, setEtas] = useState<Record<string, { etaSeconds: number | null; distanceMeters: number | null }>>({});
-
-  // Reverse geocoded friendly names
-  const [pickupName, setPickupName] = useState<string | null>(null);
-  const [destinationName, setDestinationName] = useState<string | null>(null);
 
   // Convert realtime participants into the shape Map expects
   const participants = useMemo(() => {
@@ -155,97 +149,6 @@ export default function TripRoomClient({ tripId, currentUser, initialTrip = null
     };
   }, [participants, tripMeta?.destination?.lat, tripMeta?.destination?.lng]);
 
-  // ---------------------
-  // Reverse geocode helpers
-  // ---------------------
-  function getPickupCoords() {
-    const user = participants.find((p) => p.id === (currentUser?.id ?? "anon"));
-    if (user?.coords) return user.coords;
-    if (participants.length > 0 && participants[0].coords) return participants[0].coords;
-    return undefined;
-  }
-
-  function getDestinationCoords() {
-    if (tripMeta?.destination?.lat && typeof tripMeta.destination.lat === "number") {
-      return tripMeta.destination;
-    }
-    const top = friendsETAList[0];
-    if (top?.coords) return top.coords;
-    return undefined;
-  }
-
-  async function loadNames() {
-    const p = getPickupCoords();
-    const d = getDestinationCoords();
-    if (p && typeof p.lat === "number" && typeof p.lng === "number") {
-      const name = await reverseGeocodeClient(p.lat, p.lng);
-      setPickupName(name);
-    } else {
-      setPickupName(null);
-    }
-    if (d && typeof d.lat === "number" && typeof d.lng === "number") {
-      const name = await reverseGeocodeClient(d.lat, d.lng);
-      setDestinationName(name);
-    } else {
-      setDestinationName(null);
-    }
-  }
-
-  useEffect(() => {
-    loadNames().catch((e) => console.warn("loadNames failed", e));
-  }, [participants.map(p => p.coords ? `${p.coords.lat},${p.coords.lng}` : "").join("|"), tripMeta?.destination?.lat, tripMeta?.destination?.lng]);
-
-  // ---------------------
-  // Booking helpers
-  // ---------------------
-  function onBookUber() {
-    const pickup = getPickupCoords();
-    const dest = getDestinationCoords();
-    if (!pickup || !dest) {
-      alert("Pickup or destination not known yet.");
-      return;
-    }
-    const pickupLat = pickup.lat, pickupLng = pickup.lng;
-    const dropLat = dest.lat, dropLng = dest.lng;
-
-    const pickupLabel = encodeURIComponent(pickupName || `${pickupLat},${pickupLng}`);
-    const dropLabel = encodeURIComponent(destinationName || `${dropLat},${dropLng}`);
-    
-    const mUber = `https://m.uber.com/ul/?action=setPickup&pickup[latitude]=${pickupLat}&pickup[longitude]=${pickupLng}&dropoff[latitude]=${dropLat}&dropoff[longitude]=${dropLng}&pickup[nickname]=${pickupLabel}&dropoff[nickname]=${dropLabel}`;
-    const uberApp = `uber://?action=setPickup&pickup[latitude]=${pickupLat}&pickup[longitude]=${pickupLng}&dropoff[latitude]=${dropLat}&dropoff[longitude]=${dropLng}`;
-    const play = "https://play.google.com/store/apps/details?id=com.ubercab";
-
-    openAppOrFallback({ appUrl: uberApp, webUrl: mUber, playStoreUrl: play });
-  }
-
-  function onBookOla() {
-    const pickup = getPickupCoords();
-    const dest = getDestinationCoords();
-    if (!pickup || !dest) {
-      alert("Pickup or destination not known yet.");
-      return;
-    }
-    const pickupLat = pickup.lat, pickupLng = pickup.lng;
-    const dropLat = dest.lat, dropLng = dest.lng;
-
-    const pickupLabel = encodeURIComponent(pickupName || "Pickup");
-    const dropLabel = encodeURIComponent(destinationName || "Drop");
-    const olaWeb = `https://book.olacabs.com/?lat=${pickupLat}&lng=${pickupLng}&drop_lat=${dropLat}&drop_lng=${dropLng}&pickup_name=${pickupLabel}&drop_name=${dropLabel}`;
-
-    openAppOrFallback({ webUrl: olaWeb, playStoreUrl: "https://play.google.com/store/apps/details?id=com.olacabs.customer" });
-  }
-
-  function onOpenTransit() {
-    const dest = getDestinationCoords();
-    if (!dest) {
-      alert("Destination not known yet.");
-      return;
-    }
-    const d = `${dest.lat},${dest.lng}`;
-    const maps = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(d)}&travelmode=transit`;
-    openAppOrFallback({ webUrl: maps });
-  }
-
   return (
     <div style={{ display: "grid", gridTemplateColumns: "1fr 360px", gap: 12, height: "100vh" }}>
       <div style={{ height: "100%" }}>
@@ -297,46 +200,6 @@ export default function TripRoomClient({ tripId, currentUser, initialTrip = null
             </div>
           ))
         )}
-
-        <div style={{ marginTop: 8, marginBottom: 6 }}>
-          <div style={{ fontWeight: 700 }}>Quick ride</div>
-          <div style={{ marginTop: 6, marginBottom: 10, fontSize: 13, color: "#444" }}>
-            Pickup: {pickupName ?? (getPickupCoords() ? `${getPickupCoords()!.lat.toFixed(4)}, ${getPickupCoords()!.lng.toFixed(4)}` : "unknown")}
-            <br />
-            Drop: {destinationName ?? (getDestinationCoords() ? `${getDestinationCoords()!.lat.toFixed(4)}, ${getDestinationCoords()!.lng.toFixed(4)}` : "unknown")}
-          </div>
-        </div>
-
-        <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
-          <button onClick={onBookUber} style={{ flex: 1, padding: "8px 10px", background: "#000", color: "#fff", borderRadius: 8, border: "none" }}>
-            Book Uber
-          </button>
-          <button onClick={onBookOla} style={{ flex: 1, padding: "8px 10px", background: "#0033a0", color: "#fff", borderRadius: 8, border: "none" }}>
-            Book Ola
-          </button>
-        </div>
-
-        <div style={{ display: "flex", gap: 8 }}>
-          <button onClick={onOpenTransit} style={{ flex: 1, padding: "8px 10px", background: "#0f9d58", color: "#fff", borderRadius: 8, border: "none" }}>
-            Transit (Maps)
-          </button>
-
-          <button
-            onClick={() => {
-              const pickup = getPickupCoords();
-              const dest = getDestinationCoords();
-              if (!pickup || !dest) {
-                alert("Pickup or destination not known yet.");
-                return;
-              }
-              const rapWeb = "https://rapido.bike/";
-              openAppOrFallback({ webUrl: rapWeb, playStoreUrl: "https://play.google.com/store/apps/details?id=fast.rapido.driver" });
-            }}
-            style={{ flex: 1, padding: "8px 10px", background: "#ff5a00", color: "#fff", borderRadius: 8, border: "none" }}
-          >
-            Rapido
-          </button>
-        </div>
 
         <div style={{ marginTop: 16 }}>
           <div style={{ fontWeight: 700, marginBottom: 6 }}>Debug</div>
