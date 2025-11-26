@@ -11,47 +11,46 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
-import { ArrowRight, PlusCircle, Users } from 'lucide-react';
+import { ArrowRight, PlusCircle } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { getCurrentUser, type LocalUser } from '@/lib/localAuth';
-import { getRecentTrips, type Trip } from '@/lib/tripStore';
+import { getRecentTrips, fetchTripByCode, joinTrip, type Trip } from '@/lib/tripStore';
+import JoinTripPreview from '@/components/trip/JoinTripPreview';
 
 function useLocalUser() {
   const [user, setUser] = useState<LocalUser | null>(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     setUser(getCurrentUser());
+    setLoading(false);
   }, []);
 
-  return user;
+  return { user, loading };
 }
 
 export default function DashboardPage() {
   const router = useRouter();
-  const user = useLocalUser();
+  const { user, loading } = useLocalUser();
   const [recentTrips, setRecentTrips] = useState<Trip[]>([]);
 
   useEffect(() => {
     setRecentTrips(getRecentTrips());
   }, []);
 
-
-  const handleJoinTrip = (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    const formData = new FormData(e.currentTarget);
-    const tripCode = formData.get('tripCode') as string;
-    if (tripCode) {
-      console.log('Joining trip with code:', tripCode);
-      router.push(`/trips/${tripCode}`);
-    }
+  const handleJoinSuccess = (tripId: string) => {
+    router.push(`/trips/${tripId}`);
   };
+
+  if (loading) {
+    return <div className="flex h-screen items-center justify-center">Loading...</div>
+  }
 
   return (
     <div className="bg-gray-50/50 dark:bg-black/50 min-h-screen">
       <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
         <div className="container flex h-14 items-center">
-            <h1 className="text-xl font-bold font-heading">Dashboard</h1>
+          <h1 className="text-xl font-bold font-heading">Dashboard</h1>
         </div>
       </header>
       <main className="container py-8">
@@ -82,26 +81,16 @@ export default function DashboardPage() {
               </Button>
             </CardFooter>
           </Card>
-          <Card>
-            <form onSubmit={handleJoinTrip}>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Users className="text-primary" /> Join an Existing Trip
-                </CardTitle>
-                <CardDescription>
-                  Enter a trip code to join your friends.
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <Input name="tripCode" placeholder="e.g., FRIEND-1234" />
-              </CardContent>
-              <CardFooter>
-                <Button type="submit">
-                  Join Trip <ArrowRight className="ml-2 h-4 w-4" />
-                </Button>
-              </CardFooter>
-            </form>
-          </Card>
+          
+          {user && (
+            <JoinTripPreview 
+              currentUser={user}
+              fetchTripByCode={fetchTripByCode}
+              joinTrip={joinTrip}
+              onJoinSuccess={handleJoinSuccess}
+            />
+          )}
+
         </div>
 
         <div>
@@ -110,23 +99,25 @@ export default function DashboardPage() {
           </h3>
           <div className="space-y-4">
             {recentTrips.length > 0 ? (
-                recentTrips.map((trip) => (
+              recentTrips.map((trip) => (
                 <Card key={trip.id} className="hover:shadow-md transition-shadow">
-                    <CardContent className="p-4 flex items-center justify-between">
+                  <CardContent className="p-4 flex items-center justify-between">
                     <div>
-                        <h4 className="font-semibold">{trip.name}</h4>
-                        <p className="text-sm text-muted-foreground">
+                      <h4 className="font-semibold">{trip.name}</h4>
+                      <p className="text-sm text-muted-foreground">
                         {trip.destination.name}
-                        </p>
+                      </p>
                     </div>
                     <Button variant="secondary" size="sm" asChild>
-                        <Link href={`/trips/${trip.id}`}>View</Link>
+                      <Link href={`/trips/${trip.id}`}>View</Link>
                     </Button>
-                    </CardContent>
+                  </CardContent>
                 </Card>
-                ))
+              ))
             ) : (
-                <p className="text-muted-foreground">You haven't created any trips yet.</p>
+              <Card className='text-center p-8 border-dashed'>
+                <p className="text-muted-foreground">You haven't created or joined any trips yet.</p>
+              </Card>
             )}
           </div>
         </div>
