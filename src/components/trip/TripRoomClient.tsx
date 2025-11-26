@@ -1,7 +1,7 @@
 // src/components/trip/TripRoomClient.tsx
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState, useRef } from "react";
 import dynamic from "next/dynamic";
 import useTripRealtime from "@/hooks/useTripRealtime";
 import useLiveLocation from "@/hooks/useLiveLocation";
@@ -35,10 +35,16 @@ export default function TripRoomClient({ tripId, currentUser, initialTrip }: Pro
   // local state for ETAs reported by map
   const [etas, setEtas] = useState<Record<string, { etaSeconds: number | null; distanceMeters: number | null }>>({});
 
-  // when map reports ETA for a participant
-  function handleParticipantETA(id: string, info: { etaSeconds: number | null; distanceMeters: number | null }) {
-    setEtas((s) => ({ ...s, [id]: info }));
-  }
+  // Optional: if you want to fetch fresh trip metadata (origin/destination)
+  const [tripMeta, setTripMeta] = useState<any>(initialTrip || null);
+  useEffect(() => {
+    if (!initialTrip && tripId) {
+      (async () => {
+        const r = await getTrip(tripId);
+        if (r?.data) setTripMeta(r.data);
+      })();
+    }
+  }, [tripId, initialTrip]);
 
   // participants to pass to map (use realtimeParticipants; ensure coords shape correct)
   const participants = useMemo(() => {
@@ -49,6 +55,60 @@ export default function TripRoomClient({ tripId, currentUser, initialTrip }: Pro
       coords: p.coords ? { lat: p.coords.lat, lon: p.coords.lon } : undefined,
     })) as Participant[];
   }, [realtimeParticipants]);
+
+  const matrixThrottleMs = 3000; // don't call server more often than this
+  const lastMatrixAtRef = useRef<number>(0);
+
+  useEffect(() => {
+    async function fetchMatrixETAs() {
+      if (!participants || participants.length === 0) {
+        setEtas({});
+        return;
+      }
+      if (!tripMeta?.destination?.lat) { // Check for lat on destination
+        // no destination known yet
+        return;
+      }
+      const now = Date.now();
+      if (now - lastMatrixAtRef.current < matrixThrottleMs) return;
+      lastMatrixAtRef.current = now;
+
+      const origins = participants
+        .filter((p) => p.coords && typeof p.coords.lat === "number")
+        .map((p) => ({ id: p.id, lat: p.coords!.lat, lon: p.coords!.lon }));
+
+      if (origins.length === 0) return;
+
+      try {
+        const res = await fetch("/api/matrix-eta", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ origins, destination: { lat: tripMeta.destination.lat, lon: tripMeta.destination.lng } }), // use lat/lng for destination
+        });
+        const json = await res.json();
+        if (json?.results) {
+          // results: [{ id, etaSeconds, distanceMeters }, ...]
+          setEtas((prev) => {
+            const copy = { ...prev };
+            for (const r of json.results) {
+              copy[r.id] = { etaSeconds: r.etaSeconds, distanceMeters: r.distanceMeters };
+            }
+            return copy;
+          });
+        } else if (json?.raw) {
+          // unexpected structure: client fallback - still try to parse
+          console.warn("matrix-eta returned unexpected shape", json);
+        }
+      } catch (e) {
+        console.error("matrix-eta fetch failed", e);
+      }
+    }
+
+    fetchMatrixETAs();
+    // also refetch on interval in background (optional)
+    const iv = setInterval(fetchMatrixETAs, 8000);
+    return () => clearInterval(iv);
+  }, [participants, tripMeta?.destination?.lat, tripMeta?.destination?.lng]); // Use lng
 
   // build sorted ETA list for UI
   const friendsETAList = useMemo(() => {
@@ -70,17 +130,6 @@ export default function TripRoomClient({ tripId, currentUser, initialTrip }: Pro
       });
   }, [participants, etas]);
 
-  // Optional: if you want to fetch fresh trip metadata (origin/destination)
-  const [tripMeta, setTripMeta] = useState<any>(initialTrip || null);
-  useEffect(() => {
-    if (!initialTrip && tripId) {
-      (async () => {
-        const r = await getTrip(tripId);
-        if (r?.data) setTripMeta(r.data);
-      })();
-    }
-  }, [tripId, initialTrip]);
-
   return (
     <div style={{ display: "grid", gridTemplateColumns: "1fr 360px", gap: 12, height: "100vh" }}>
       <div style={{ height: "100%" }}>
@@ -88,8 +137,7 @@ export default function TripRoomClient({ tripId, currentUser, initialTrip }: Pro
           origin={tripMeta?.origin}
           destination={tripMeta?.destination}
           participants={participants}
-          computeRoutes={true}
-          onParticipantETA={handleParticipantETA}
+          computeRoutes={false}
         />
       </div>
 

@@ -17,8 +17,8 @@ type Props = {
   destination?: { label?: string; coords?: LatLng } | null;
   participants?: Participant[];
   fitBounds?: boolean;
-  computeRoutes?: boolean;
-  onParticipantETA?: (id: string, info: { etaSeconds: number | null; distanceMeters: number | null }) => void;
+  computeRoutes?: boolean; // Kept for API compatibility, but logic is now external
+  onParticipantETA?: (id: string, info: { etaSeconds: number | null; distanceMeters: number | null }) => void; // Kept for API compatibility
   onSearchResult?: (place: { label?: string; coords?: LatLng }) => void;
   className?: string;
   style?: React.CSSProperties;
@@ -202,45 +202,10 @@ export default function TomTomMapController({
     removeMarker("destination");
     if (destination?.coords) upsertMarker("destination", destination.coords, `<b>Destination</b>`, { color: "#E74C3C" });
   }, [origin, destination, mapReady]);
-
-  async function fetchAndDrawRoute(participant: Participant) {
-    if (!participant.coords || !destination?.coords || !onParticipantETA) return;
-    const TOMTOM_KEY = process.env.NEXT_PUBLIC_TOMTOM_KEY;
-    if (!TOMTOM_KEY) return;
-    
-    const a = `${participant.coords.lat},${participant.coords.lon}`;
-    const b = `${destination.coords.lat},${destination.coords.lon}`;
-    const url = `https://api.tomtom.com/routing/1/calculateRoute/${a}:${b}/json?key=${TOMTOM_KEY}&routeType=fastest&traffic=true&computeBestOrder=false&view=Unified`;
-    const routeLayerId = `${routeLayerIdPrefix}${participant.id}`;
-
-    try {
-      const res = await fetch(url);
-      const j = await res.json();
-      const route = j.routes?.[0];
-      const travelSeconds = route?.summary?.travelTimeInSeconds ?? null;
-      const distanceMeters = route?.summary?.lengthInMeters ?? null;
-      
-      onParticipantETA(participant.id, { etaSeconds: travelSeconds, distanceMeters });
-
-      const coordinates: [number, number][] = route?.legs?.flatMap((leg: any) => leg.points.map((pt: any) => [pt.longitude, pt.latitude])) || [];
-      
-      const map = ttMapRef.current;
-      const source = map.getSource(routeLayerId);
-      if (source) source.setData({ type: "Feature", properties: {}, geometry: { type: "LineString", coordinates } });
-      else if (coordinates.length > 0) {
-        map.addSource(routeLayerId, { type: "geojson", data: { type: "Feature", properties: {}, geometry: { type: "LineString", coordinates } } });
-        map.addLayer({ id: routeLayerId, type: "line", source: routeLayerId, layout: { "line-join": "round", "line-cap": "round" }, paint: { "line-color": "#3b82f6", "line-width": 5, "line-opacity": 0.7 } });
-      }
-    } catch (err) {
-      console.error("route error", err);
-      onParticipantETA(participant.id, { etaSeconds: null, distanceMeters: null });
-    }
-  }
-
-  useEffect(() => {
-    if (!computeRoutes || !mapReady || !destination?.coords) return;
-    participants.forEach(p => { if (p.coords) fetchAndDrawRoute(p); });
-  }, [participants, destination, computeRoutes, mapReady]);
+  
+  // Note: Route fetching logic is removed from here as it's now handled externally
+  // by the new /api/matrix-eta endpoint and the TripRoomClient's useEffect.
+  // The map controller is now only responsible for displaying markers.
 
   return <div ref={mapRef} className={className} style={{ width: "100%", height: "100%", ...(style || {}) }} />;
 }
