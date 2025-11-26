@@ -36,7 +36,8 @@ const nextConfig: NextConfig = {
         pathname: '/**',
       },
       {
-        protocol: 'https',
+        protocol: 'https'
+        ,
         hostname: 'api.tomtom.com',
         port: '',
         pathname: '/**',

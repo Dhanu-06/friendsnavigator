@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -11,9 +11,8 @@ import {
   Video,
   CreditCard,
   MapPin,
-  Share2,
 } from 'lucide-react';
-import MapClient from '@/components/trip/MapClient';
+import TomTomMapController from '@/components/trip/TomTomMapController';
 import { ParticipantsList } from '@/components/trip/ParticipantsList';
 import { ChatBox } from '@/components/trip/ChatBox';
 import { ExpenseCalculator } from '@/components/trip/ExpenseCalculator';
@@ -25,6 +24,7 @@ import { getCurrentUser, type LocalUser } from '@/lib/localAuth';
 import useTripRealtime from '@/hooks/useTripRealtime';
 import type { Participant } from '@/hooks/useTripRealtime';
 import useLiveLocation from '@/hooks/useLiveLocation';
+import { startSimulatedMovement } from '@/utils/demoLocationSimulator';
 
 export default function TripPage() {
   const params = useParams();
@@ -36,8 +36,8 @@ export default function TripPage() {
   // Realtime data hooks
   const { participants, messages, expenses, joinOrUpdateParticipant, sendMessage, addExpense } = useTripRealtime(tripId);
 
-  // Live location hook
-  const { lastPosition, permission, error: locationError } = useLiveLocation(tripId, currentUser ? { id: currentUser.uid, name: currentUser.name, avatarUrl: `https://i.pravatar.cc/150?u=${currentUser.uid}` } : null, { enableWatch: true, watchIntervalMs: 5000 });
+  // Live location hook for the current user
+  const { lastPosition } = useLiveLocation(tripId, currentUser ? { id: currentUser.uid, name: currentUser.name, avatarUrl: `https://i.pravatar.cc/150?u=${currentUser.uid}` } : null);
 
   // Effect to load initial trip data and user
   useEffect(() => {
@@ -53,33 +53,66 @@ export default function TripPage() {
         });
       }
     }
-    setCurrentUser(getCurrentUser());
-  }, [tripId, toast]);
+    const user = getCurrentUser();
+    setCurrentUser(user);
 
-
-  // Effect to join trip and update location periodically
-  useEffect(() => {
-    if (!tripId || !currentUser) return;
-    
-    // Initial join/update with best-known location
-    const participantPayload: Participant = {
-      id: currentUser.uid,
-      name: currentUser.name,
-      avatarUrl: `https://i.pravatar.cc/150?u=${currentUser.uid}`,
-      mode: 'unknown',
-      lat: lastPosition?.lat ?? trip?.destination.lat,
-      lng: lastPosition?.lng ?? trip?.destination.lng,
-      status: 'On the way',
-    };
-    joinOrUpdateParticipant(tripId, participantPayload);
-    
-    // If we get a new position from the location hook, update our status
-    if (lastPosition) {
-       const updatePayload: Participant = { ...participantPayload, lat: lastPosition.lat, lng: lastPosition.lng };
-       joinOrUpdateParticipant(tripId, updatePayload);
+    if (tripId && user) {
+        // Initial join/update with best-known location
+        const participantPayload: Participant = {
+            id: user.uid,
+            name: user.name,
+            avatarUrl: `https://i.pravatar.cc/150?u=${user.uid}`,
+            mode: 'unknown',
+            lat: localTrip?.destination.lat ?? 0,
+            lng: localTrip?.destination.lng ?? 0,
+            status: 'On the way',
+        };
+        joinOrUpdateParticipant(tripId, participantPayload);
     }
-  // This should run when the user is known or their location changes.
-  }, [tripId, currentUser, lastPosition, joinOrUpdateParticipant, trip?.destination]);
+  }, [tripId, toast, joinOrUpdateParticipant]);
+
+  // Effect to start location simulation
+  useEffect(() => {
+    if (!tripId || !currentUser || !trip?.destination) return;
+
+    const onLocationUpdate = (lat: number, lng: number) => {
+        const participantPayload: Participant = {
+            id: currentUser.uid,
+            name: currentUser.name,
+            avatarUrl: `https://i.pravatar.cc/150?u=${currentUser.uid}`,
+            lat,
+            lng,
+            status: 'On the way',
+            mode: 'car',
+        };
+        joinOrUpdateParticipant(tripId, participantPayload);
+    };
+
+    const stopSimulation = startSimulatedMovement(
+      trip.destination.lat,
+      trip.destination.lng,
+      onLocationUpdate
+    );
+
+    return () => stopSimulation();
+  }, [tripId, currentUser, trip?.destination, joinOrUpdateParticipant]);
+  
+  // Effect to update participant location from the live location hook
+  useEffect(() => {
+    if (lastPosition && tripId && currentUser) {
+      const { lat, lng } = lastPosition;
+      const participantPayload: Participant = {
+        id: currentUser.uid,
+        name: currentUser.name,
+        avatarUrl: `https://i.pravatar.cc/150?u=${currentUser.uid}`,
+        lat,
+        lng,
+        status: 'On the way',
+        mode: 'car',
+      };
+      joinOrUpdateParticipant(tripId, participantPayload);
+    }
+  }, [lastPosition, tripId, currentUser, joinOrUpdateParticipant]);
 
 
   const copyCode = () => {
@@ -104,48 +137,26 @@ export default function TripPage() {
     await addExpense(tripId, newExpense);
   }
 
-  // Combine realtime participants with the current user's latest position for the map
   const mapParticipants = useMemo(() => {
       if (!participants) return [];
-      
-      const otherParticipants = participants.filter(p => p.id !== currentUser?.id);
-      
-      let me: Participant | null = null;
-      if (currentUser) {
-        me = {
-            id: currentUser.id,
-            name: currentUser.name,
-            avatarUrl: `https://i.pravatar.cc/150?u=${currentUser.uid}`,
-            lat: lastPosition?.lat ?? trip?.destination.lat,
-            lng: lastPosition?.lng ?? trip?.destination.lng,
-            status: 'On the way',
-            mode: 'car'
-        };
-      }
-
-      return me ? [...otherParticipants, me] : otherParticipants;
-
-  }, [participants, currentUser, lastPosition, trip?.destination.lat, trip?.destination.lng]);
+      return participants.map(p => ({
+        id: p.id,
+        name: p.name,
+        coords: (p.lat && p.lng) ? { lat: p.lat, lon: p.lng } : undefined,
+        avatarUrl: p.avatarUrl
+      }));
+  }, [participants]);
 
 
   if (!trip) {
     return <div className="flex h-screen items-center justify-center">Loading trip...</div>;
   }
 
-  const friendLocations = mapParticipants.map(p => ({
-    id: p.id,
-    name: p.name,
-    lat: p.lat ?? 0,
-    lng: p.lng ?? 0,
-    mode: p.mode,
-    avatarUrl: p.avatarUrl
-  }));
-
   const chatMessages = messages.map(msg => ({
       id: msg.id,
       userName: msg.userName === currentUser?.name ? 'You' : msg.userName,
       text: msg.text,
-      timestamp: msg.createdAt?.toDate ? msg.createdAt.toDate().toLocaleTimeString() : new Date(msg.createdAt).toLocaleTimeString(),
+      timestamp: msg.createdAt?.toDate ? msg.createdAt.toDate().toLocaleTimeString() : (msg.createdAt ? new Date(msg.createdAt).toLocaleTimeString() : ''),
       avatarUrl: msg.avatarUrl
   }));
 
@@ -176,8 +187,14 @@ export default function TripPage() {
           <div className="grid md:grid-cols-3 lg:grid-cols-4 gap-6 h-full">
             
             <div className="md:col-span-2 lg:col-span-3 h-full flex flex-col gap-6">
-               <Card className="flex-grow-[2] flex flex-col">
-                  <MapClient friends={friendLocations} center={{lat: trip.destination.lat, lng: trip.destination.lng}} />
+               <Card className="flex-grow-[2] flex flex-col overflow-hidden rounded-lg">
+                  <TomTomMapController 
+                    participants={mapParticipants} 
+                    destination={{
+                      coords: { lat: trip.destination.lat, lon: trip.destination.lng },
+                      label: trip.destination.name
+                    }}
+                  />
                </Card>
                <Card className="flex-grow-[1]">
                  <ParticipantsList participants={uiParticipants} />
