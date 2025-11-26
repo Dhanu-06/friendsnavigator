@@ -12,7 +12,7 @@ const firebaseConfig = {
   appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID ?? '1',
 };
 
-const app = !getApps().length ? initializeApp(firebaseConfig) : getApps()[0];
+const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 export const auth = getAuth(app);
 export const db = getFirestore(app);
 
@@ -27,6 +27,8 @@ if (process.env.NEXT_PUBLIC_USE_FIREBASE_EMULATOR === 'true') {
     console.log('Connecting to Firebase emulators (auth:9099, firestore:8080)');
     connectAuthEmulator(auth, 'http://127.0.0.1:9099', { disableWarnings: true });
     connectFirestoreEmulator(db, '127.0.0.1', 8080);
+    // @ts-ignore
+    db.settings && db.settings({ experimentalForceLongPolling: true });
     console.log('Connected to Firebase emulators');
   } catch (e) {
     console.warn('Emulator connection failed', e);
