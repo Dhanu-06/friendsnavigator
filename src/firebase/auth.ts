@@ -31,8 +31,14 @@ export async function signInWithEmail(email: string, password: string) {
     return { user: cred.user, error: null };
   } catch (err: any) {
     console.error('signIn error', err);
-    if (err.code === 'auth/network-request-failed') {
+    if (err.code === 'auth/network-request-failed' || err.code === 'auth/network-request-failed') {
       return { user: null, error: 'Network error: Could not connect to authentication service. If you are developing locally, please ensure the Firebase emulator is running (`npm run emulators`).' };
+    }
+     if (err.code === 'auth/wrong-password' || err.code === 'wrong-password') {
+      return { user: null, error: 'Incorrect password. Please try again.' };
+    }
+    if (err.code === 'auth/user-not-found' || err.code === 'user-not-found') {
+      return { user: null, error: 'User not found. Please sign up first.' };
     }
     return { user: null, error: (err?.message ?? String(err)) };
   }
