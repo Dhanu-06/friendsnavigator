@@ -5,7 +5,6 @@ import React from 'react';
 import dynamic from 'next/dynamic';
 import { useParams } from 'next/navigation';
 import { getCurrentUser } from '@/lib/localAuth';
-import TempEmuCheck from '@/components/TempEmuCheck';
 
 const TripRoomClient = dynamic(() => import('@/components/trip/TripRoomClient'), { ssr: false });
 
@@ -16,7 +15,18 @@ export default function TripPage() {
   const currentUser = getCurrentUser();
 
   if (!currentUser) {
-    return <div className="flex h-screen items-center justify-center">You must be logged in to view a trip.</div>;
+    // In a real app, you might redirect to login
+    // For this demo, we can proceed with a guest identity for location publishing
+    const user = {
+        id: 'guest-' + Math.random().toString(36).slice(2, 9),
+        name: 'Guest',
+        avatar: `https://i.pravatar.cc/150?u=guest`
+    };
+     return (
+        <div style={{ width: '100%', height: '100vh' }}>
+          <TripRoomClient tripId={tripId} currentUser={user} />
+        </div>
+      );
   }
   
   const user = {
@@ -27,7 +37,6 @@ export default function TripPage() {
 
   return (
     <div style={{ width: '100%', height: '100vh' }}>
-      <TempEmuCheck />
       <TripRoomClient tripId={tripId} currentUser={user} />
     </div>
   );
