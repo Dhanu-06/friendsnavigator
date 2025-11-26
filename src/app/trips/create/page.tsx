@@ -13,7 +13,7 @@ import { CityModeSelector } from '@/components/create/CityModeSelector';
 import { OutstationModeSelector } from '@/components/create/OutstationModeSelector';
 import { TripTypeToggle, TripType } from '@/components/create/TripTypeToggle';
 import { cn } from '@/lib/utils';
-import { saveTrip } from '@/lib/tripStore';
+import { saveTrip } from '@/lib/storeAdapter';
 
 type TripData = {
   name: string;
@@ -37,7 +37,7 @@ export default function CreateTripPage() {
   const nextStep = () => setStep((s) => s + 1);
   const prevStep = () => setStep((s) => s - 1);
 
-  const handleCreateTrip = () => {
+  const handleCreateTrip = async () => {
     // A real app would get lat/lng from a geocoding service
     const destination = {
         name: tripData.destination || 'Unknown',
@@ -58,8 +58,7 @@ export default function CreateTripPage() {
         createdAt: Date.now(),
     };
 
-    // @ts-ignore
-    saveTrip(newTrip);
+    await saveTrip(tripId, newTrip);
 
     toast({
       title: 'Trip Created!',

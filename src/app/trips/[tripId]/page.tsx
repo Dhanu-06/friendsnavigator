@@ -27,6 +27,7 @@ import useLiveLocation from '@/hooks/useLiveLocation';
 import { startSimulatedMovement } from '@/utils/demoLocationSimulator';
 import { getETAForParticipant } from '@/lib/getParticipantETA';
 import TempEmuCheck from '@/components/TempEmuCheck';
+import { getTrip } from '@/lib/storeAdapter';
 
 
 export default function TripPage() {
@@ -45,18 +46,22 @@ export default function TripPage() {
 
   // Effect to load initial trip data and user
   useEffect(() => {
-    if (tripId) {
-      const tripData = getTripById(tripId);
-      if (tripData) {
-        setTrip(tripData);
-      } else {
-        toast({
-          variant: 'destructive',
-          title: 'Trip not found',
-          description: 'The trip you are looking for does not exist.',
-        });
-      }
+    async function loadTrip() {
+        if (tripId) {
+            const { data: tripData, source } = await getTrip(tripId);
+            console.log(`Loaded trip ${tripId} from ${source}`);
+            if (tripData) {
+                setTrip(tripData);
+            } else {
+                toast({
+                variant: 'destructive',
+                title: 'Trip not found',
+                description: 'The trip you are looking for does not exist.',
+                });
+            }
+        }
     }
+    loadTrip();
     const user = getCurrentUser();
     setCurrentUser(user);
   }, [tripId, toast]);

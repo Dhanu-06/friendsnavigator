@@ -17,6 +17,7 @@ import { useEffect, useState } from 'react';
 import { getCurrentUser, type LocalUser } from '@/lib/localAuth';
 import { getRecentTrips, fetchTripByCode, joinTrip, type Trip } from '@/lib/tripStore';
 import JoinTripPreview from '@/components/trip/JoinTripPreview';
+import { getTrip, joinTrip as joinTripAdapter } from '@/lib/storeAdapter';
 
 function useLocalUser() {
   const [user, setUser] = useState<LocalUser | null>(null);
@@ -36,6 +37,7 @@ export default function DashboardPage() {
   const [recentTrips, setRecentTrips] = useState<Trip[]>([]);
 
   useEffect(() => {
+    // This now uses the local-only version for speed on the dashboard.
     setRecentTrips(getRecentTrips());
   }, []);
 
@@ -86,8 +88,13 @@ export default function DashboardPage() {
           {user && (
             <JoinTripPreview 
               currentUser={user}
-              fetchTripByCode={fetchTripByCode}
-              joinTrip={joinTrip}
+              fetchTripByCode={async (code) => {
+                const res = await getTrip(code);
+                return res.data;
+              }}
+              joinTrip={async (tripId, user) => {
+                await joinTripAdapter(tripId, user);
+              }}
               onJoinSuccess={handleJoinSuccess}
             />
           )}

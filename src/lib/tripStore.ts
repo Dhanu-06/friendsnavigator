@@ -1,5 +1,7 @@
 // src/lib/tripStore.ts
-import { getTripLocal, saveTripLocalOnly } from "./tripStoreFallback";
+import { getTripLocal, saveTripLocal, getRecentTripsLocal, addParticipantLocal } from "./fallbackStore";
+import { getTrip as getTripAdapter, saveTrip as saveTripAdapter, joinTrip as joinTripAdapter, getRecentTrips as getRecentTripsAdapter } from "./storeAdapter";
+
 
 export type Trip = {
   id: string;
@@ -16,60 +18,35 @@ export type Trip = {
   createdAt?: number;
 };
 
-const TRIPS_STORAGE_KEY = 'friendsnavigator_trips';
-
-function getTrips(): Record<string, Trip> {
-  if (typeof window === 'undefined') return {};
-  const raw = localStorage.getItem(TRIPS_STORAGE_KEY);
-  if (!raw) return {};
-  try {
-    return JSON.parse(raw);
-  } catch {
-    return {};
-  }
-}
-
+/**
+ * @deprecated Use functions from storeAdapter.ts for robust fallback logic.
+ */
 export function saveTrip(trip: Trip) {
-  const trips = getTrips();
-  trips[trip.id] = trip;
-  localStorage.setItem(TRIPS_STORAGE_KEY, JSON.stringify(trips));
-  // Also save via fallback in case we are trying to sync with emulator
-  saveTripLocalOnly(trip.id, trip);
+  saveTripAdapter(trip.id, trip);
 }
 
+/**
+ * @deprecated Use functions from storeAdapter.ts for robust fallback logic.
+ */
 export function getTripById(id: string): Trip | null {
-  // Prioritize local storage for consistency in the current session
-  const trip = getTripLocal(id);
-  if (trip) return trip;
-  
-  const trips = getTrips();
-  return trips[id] ?? null;
+  // This is now a synchronous-only local getter.
+  // For async operations with fallbacks, use the adapter.
+  return getTripLocal(id);
 }
 
+/**
+ * @deprecated Use functions from storeAdapter.ts for robust fallback logic.
+ */
 export function getRecentTrips(): Trip[] {
-    const trips = getTrips();
-    return Object.values(trips).sort((a:any, b:any) => (b.createdAt || 0) - (a.createdAt || 0));
+    return getRecentTripsLocal();
 }
 
 export async function fetchTripByCode(code: string): Promise<Trip | null> {
-  // This is an async function to mimic a real API call, using the local fallback
-  return Promise.resolve(getTripById(code));
+  const result = await getTripAdapter(code);
+  return result.data;
 }
 
 export async function joinTrip(tripId: string, user: { id: string; name: string; avatarUrl?: string }): Promise<void> {
-  const trip = getTripById(tripId);
-  
-  if (!trip) {
-    throw new Error("Trip not found. It may have been deleted.");
-  }
-
-  trip.participants = trip.participants || [];
-
-  if (!trip.participants.some(p => p.id === user.id)) {
-    trip.participants.push(user);
-  }
-  
-  saveTrip(trip);
-  
+  await joinTripAdapter(tripId, user);
   return Promise.resolve();
 }
