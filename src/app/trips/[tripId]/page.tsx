@@ -106,21 +106,24 @@ export default function TripPage() {
 
   // Combine realtime participants with the current user's latest position for the map
   const mapParticipants = useMemo(() => {
-      if (!currentUser || !participants) return [];
+      if (!participants) return [];
       
-      const otherParticipants = participants.filter(p => p.id !== currentUser.id);
+      const otherParticipants = participants.filter(p => p.id !== currentUser?.id);
       
-      const me: Participant = {
-          id: currentUser.id,
-          name: currentUser.name,
-          avatarUrl: `https://i.pravatar.cc/150?u=${currentUser.uid}`,
-          lat: lastPosition?.lat ?? trip?.destination.lat,
-          lng: lastPosition?.lng ?? trip?.destination.lng,
-          status: 'On the way',
-          mode: 'car'
-      };
+      let me: Participant | null = null;
+      if (currentUser) {
+        me = {
+            id: currentUser.id,
+            name: currentUser.name,
+            avatarUrl: `https://i.pravatar.cc/150?u=${currentUser.uid}`,
+            lat: lastPosition?.lat ?? trip?.destination.lat,
+            lng: lastPosition?.lng ?? trip?.destination.lng,
+            status: 'On the way',
+            mode: 'car'
+        };
+      }
 
-      return [...otherParticipants, me];
+      return me ? [...otherParticipants, me] : otherParticipants;
 
   }, [participants, currentUser, lastPosition, trip?.destination.lat, trip?.destination.lng]);
 
