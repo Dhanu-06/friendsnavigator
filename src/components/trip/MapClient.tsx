@@ -3,7 +3,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import '@tomtom-international/web-sdk-maps/dist/maps.css';
 
-type FriendLocation = { id: string; name: string; lat: number; lng: number; mode?: string };
+type FriendLocation = { id: string; name: string; lat: number; lng: number; mode?: string, avatarUrl?: string };
 
 export default function MapClient({
   center = { lat: 13.0105, lng: 77.5540 },
@@ -14,6 +14,7 @@ export default function MapClient({
   const mapInstanceRef = useRef<any>(null);
   const [error, setError] = useState<string|null>(null);
   const [ready, setReady] = useState(false);
+  const markersRef = useRef<any>({});
 
   useEffect(() => {
     if (typeof window === 'undefined' || !mapRef.current) return;
@@ -49,45 +50,64 @@ export default function MapClient({
 
     return () => {
       cancelled = true;
-      if (mapInstanceRef.current) mapInstanceRef.current.remove();
+      if (mapInstanceRef.current) {
+        mapInstanceRef.current.remove();
+        mapInstanceRef.current = null;
+      }
     };
   }, [center.lat, center.lng, zoom]);
 
   useEffect(() => {
     const map = mapInstanceRef.current;
     if (!map || !ready) return;
+
     (async () => {
-      const tt = await import('@tomtom-international/web-sdk-maps');
-      // remove old markers if any
-      // @ts-ignore
-      if (map.__friendsMarkers) map.__friendsMarkers.forEach((m:any)=>m.remove());
-      // @ts-ignore
-      map.__friendsMarkers = [];
-      friends.forEach(f=>{
-        if (typeof f.lat !== 'number' || typeof f.lng !== 'number') return;
-        
-        const markerEl = document.createElement('div');
-        markerEl.className = 'w-10 h-10 bg-white rounded-full border-2 border-primary shadow-md flex items-center justify-center overflow-hidden';
-        markerEl.innerHTML = `<img src="https://i.pravatar.cc/150?u=${f.id}" alt="${f.name}" class="w-full h-full object-cover">`;
+        const tt = await import('@tomtom-international/web-sdk-maps');
+        const currentMarkerIds = Object.keys(markersRef.current);
+        const friendIds = friends.map(f => f.id);
 
-        const marker = new tt.Marker({element: markerEl})
-          .setLngLat([f.lng,f.lat])
-          .addTo(map);
+        // Remove markers for friends who are no longer in the list
+        currentMarkerIds.forEach(id => {
+            if (!friendIds.includes(id)) {
+                markersRef.current[id].marker.remove();
+                delete markersRef.current[id];
+            }
+        });
         
-        const popup = new tt.Popup({offset:30}).setHTML(`<strong>${f.name}</strong><div>${f.mode||''}</div>`);
-        marker.setPopup(popup);
+        friends.forEach(f=>{
+            if (typeof f.lat !== 'number' || typeof f.lng !== 'number') return;
+            
+            const lngLat: [number, number] = [f.lng, f.lat];
 
-        // @ts-ignore
-        map.__friendsMarkers.push(marker);
-      });
-      if (friends.length > 0) {
-        const validFriends = friends.filter(f => typeof f.lat === 'number' && typeof f.lng === 'number');
-        if (validFriends.length > 0) {
-          const lats = validFriends.map(x=>x.lat), lngs = validFriends.map(x=>x.lng);
-          const bounds: [[number, number], [number, number]] = [[Math.min(...lngs), Math.min(...lats)],[Math.max(...lngs), Math.max(...lats)]];
-          try { map.fitBounds(bounds, {padding:80, maxZoom:16}); } catch(e){/* ignore */ }
+            if (markersRef.current[f.id]) {
+                // Update existing marker
+                markersRef.current[f.id].marker.setLngLat(lngLat);
+            } else {
+                // Create new marker
+                const markerEl = document.createElement('div');
+                markerEl.className = 'w-10 h-10 bg-white rounded-full border-2 border-primary shadow-md flex items-center justify-center overflow-hidden';
+                const avatar = f.avatarUrl || `https://i.pravatar.cc/150?u=${f.id}`;
+                markerEl.innerHTML = `<img src="${avatar}" alt="${f.name}" class="w-full h-full object-cover">`;
+
+                const marker = new tt.Marker({element: markerEl})
+                    .setLngLat(lngLat)
+                    .addTo(map);
+                
+                const popup = new tt.Popup({offset:30}).setHTML(`<strong>${f.name}</strong>`);
+                marker.setPopup(popup);
+
+                markersRef.current[f.id] = { marker, popup };
+            }
+        });
+
+        if (friends.length > 0) {
+            const validFriends = friends.filter(f => typeof f.lat === 'number' && typeof f.lng === 'number');
+            if (validFriends.length > 0) {
+                const lats = validFriends.map(x=>x.lat), lngs = validFriends.map(x=>x.lng);
+                const bounds: [[number, number], [number, number]] = [[Math.min(...lngs), Math.min(...lats)],[Math.max(...lngs), Math.max(...lats)]];
+                try { map.fitBounds(bounds, {padding:80, maxZoom:16}); } catch(e){/* ignore */ }
+            }
         }
-      }
     })();
   }, [friends, ready]);
 

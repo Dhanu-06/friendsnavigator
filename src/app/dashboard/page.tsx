@@ -15,6 +15,7 @@ import { Input } from '@/components/ui/input';
 import { ArrowRight, PlusCircle, Users } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { getCurrentUser, type LocalUser } from '@/lib/localAuth';
+import { getRecentTrips, type Trip } from '@/lib/tripStore';
 
 function useLocalUser() {
   const [user, setUser] = useState<LocalUser | null>(null);
@@ -26,29 +27,24 @@ function useLocalUser() {
   return user;
 }
 
-const recentTrips = [
-  {
-    id: 'demo-trip',
-    name: 'Weekend to Nandi Hills',
-    destination: 'Nandi Hills View Point',
-  },
-  {
-    id: 'demo-trip-2',
-    name: 'Koramangala Cafe Hopping',
-    destination: 'Third Wave Coffee',
-  },
-];
-
 export default function DashboardPage() {
   const router = useRouter();
   const user = useLocalUser();
+  const [recentTrips, setRecentTrips] = useState<Trip[]>([]);
+
+  useEffect(() => {
+    setRecentTrips(getRecentTrips());
+  }, []);
+
 
   const handleJoinTrip = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
-    const tripCode = formData.get('tripCode');
-    console.log('Joining trip with code:', tripCode);
-    router.push('/trips/demo-trip');
+    const tripCode = formData.get('tripCode') as string;
+    if (tripCode) {
+      console.log('Joining trip with code:', tripCode);
+      router.push(`/trips/${tripCode}`);
+    }
   };
 
   return (
@@ -113,21 +109,25 @@ export default function DashboardPage() {
             Recent Trips
           </h3>
           <div className="space-y-4">
-            {recentTrips.map((trip) => (
-              <Card key={trip.id} className="hover:shadow-md transition-shadow">
-                <CardContent className="p-4 flex items-center justify-between">
-                  <div>
-                    <h4 className="font-semibold">{trip.name}</h4>
-                    <p className="text-sm text-muted-foreground">
-                      {trip.destination}
-                    </p>
-                  </div>
-                  <Button variant="secondary" size="sm" asChild>
-                    <Link href={`/trips/${trip.id}`}>View</Link>
-                  </Button>
-                </CardContent>
-              </Card>
-            ))}
+            {recentTrips.length > 0 ? (
+                recentTrips.map((trip) => (
+                <Card key={trip.id} className="hover:shadow-md transition-shadow">
+                    <CardContent className="p-4 flex items-center justify-between">
+                    <div>
+                        <h4 className="font-semibold">{trip.name}</h4>
+                        <p className="text-sm text-muted-foreground">
+                        {trip.destination.name}
+                        </p>
+                    </div>
+                    <Button variant="secondary" size="sm" asChild>
+                        <Link href={`/trips/${trip.id}`}>View</Link>
+                    </Button>
+                    </CardContent>
+                </Card>
+                ))
+            ) : (
+                <p className="text-muted-foreground">You haven't created any trips yet.</p>
+            )}
           </div>
         </div>
       </main>

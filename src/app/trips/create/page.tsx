@@ -7,13 +7,13 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter }
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Progress } from '@/components/ui/progress';
-import { ArrowLeft, ArrowRight, Building, Mountain, Clipboard, PartyPopper } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Clipboard, PartyPopper } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
 import { CityModeSelector } from '@/components/create/CityModeSelector';
 import { OutstationModeSelector } from '@/components/create/OutstationModeSelector';
 import { TripTypeToggle, TripType } from '@/components/create/TripTypeToggle';
 import { cn } from '@/lib/utils';
-
+import { saveTrip } from '@/lib/tripStore';
 
 type TripData = {
   name: string;
@@ -38,13 +38,36 @@ export default function CreateTripPage() {
   const prevStep = () => setStep((s) => s - 1);
 
   const handleCreateTrip = () => {
-    console.log("Creating trip with data:", tripData);
+    // A real app would get lat/lng from a geocoding service
+    const destination = {
+        name: tripData.destination || 'Unknown',
+        lat: 13.3702, // Mock Nandi Hills Lat
+        lng: 77.6835, // Mock Nandi HIlls Lng
+    };
+
+    const tripId = `${tripData.name?.substring(0,5).toUpperCase()}-${Math.random().toString(36).slice(2, 6)}`;
+    
+    const newTrip = {
+        id: tripId,
+        name: tripData.name!,
+        destination: destination,
+        tripType: tripData.tripType!,
+        participants: [],
+        messages: [],
+        expenses: [],
+        createdAt: Date.now(),
+    };
+
+    // @ts-ignore
+    saveTrip(newTrip);
+
     toast({
-      title: 'Trip Created! (Demo)',
+      title: 'Trip Created!',
       description: 'Redirecting to your new trip room...',
     });
+    
     setTimeout(() => {
-        router.push('/trips/demo-trip');
+        router.push(`/trips/${tripId}`);
     }, 1000);
   };
 
@@ -116,7 +139,7 @@ export default function CreateTripPage() {
                         </CardContent>
                         <CardFooter className="flex justify-between">
                             <Button variant="outline" onClick={prevStep}><ArrowLeft className="mr-2 h-4 w-4"/> Back</Button>
-                            <Button onClick={nextStep} disabled={!tripData.mode}>Next <ArrowRight className="ml-2 h-4 w-4"/></Button>
+                            <Button onClick={nextStep} disabled={!tripData.mode}>Go to Final Step <ArrowRight className="ml-2 h-4 w-4"/></Button>
                         </CardFooter>
                     </div>
 
