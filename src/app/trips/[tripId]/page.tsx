@@ -45,9 +45,9 @@ export default function TripPage() {
   // Effect to load initial trip data and user
   useEffect(() => {
     if (tripId) {
-      const localTrip = getTripById(tripId);
-      if (localTrip) {
-        setTrip(localTrip);
+      const tripData = getTripById(tripId);
+      if (tripData) {
+        setTrip(tripData);
       } else {
         toast({
           variant: 'destructive',
