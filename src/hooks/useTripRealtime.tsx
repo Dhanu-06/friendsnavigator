@@ -2,10 +2,10 @@
 // src/hooks/useTripRealtime.tsx
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState } from "react";
 import { collection, onSnapshot, query, orderBy, addDoc, serverTimestamp, setDoc, doc } from "firebase/firestore";
 import { getFirebaseInstances } from "@/lib/firebaseClient";
-import { getTripLocal, saveTripLocal, readTripsLocal } from "@/lib/fallbackStore";
+import { getTripLocal, saveTripLocal } from "@/lib/fallbackStore";
 import type { Trip } from '@/lib/tripStore';
 
 
