@@ -12,6 +12,8 @@ import {
   Video,
   CreditCard,
   MapPin,
+  Wifi,
+  WifiOff,
 } from 'lucide-react';
 import TomTomMapController from '@/components/trip/TomTomMapController';
 import { ParticipantsList } from '@/components/trip/ParticipantsList';
@@ -24,7 +26,6 @@ import { getCurrentUser, type LocalUser } from '@/lib/localAuth';
 import useTripRealtime from '@/hooks/useTripRealtime';
 import type { Participant } from '@/hooks/useTripRealtime';
 import useLiveLocation from '@/hooks/useLiveLocation';
-import { startSimulatedMovement } from '@/utils/demoLocationSimulator';
 import { getETAForParticipant } from '@/lib/getParticipantETA';
 import TempEmuCheck from '@/components/TempEmuCheck';
 import { getTrip } from '@/lib/storeAdapter';
@@ -39,10 +40,10 @@ export default function TripPage() {
   const [friendsETA, setFriendsETA] = useState<any[]>([]);
 
   // Realtime data hooks
-  const { participants, messages, expenses, joinOrUpdateParticipant, sendMessage, addExpense } = useTripRealtime(tripId);
+  const { participants, messages, expenses, status, joinOrUpdateParticipant, sendMessage, addExpense } = useTripRealtime(tripId);
 
   // Live location hook for the current user
-  useLiveLocation(tripId, currentUser ? { id: currentUser.uid, name: currentUser.name, avatarUrl: `https://i.pravatar.cc/150?u=${currentUser.uid}` } : null);
+  const { lastPosition } = useLiveLocation(tripId, currentUser ? { id: currentUser.uid, name: currentUser.name, avatarUrl: `https://i.pravatar.cc/150?u=${currentUser.uid}` } : null);
 
   // Effect to load initial trip data and user
   useEffect(() => {
@@ -51,7 +52,7 @@ export default function TripPage() {
             const { data: tripData, source } = await getTrip(tripId);
             console.log(`Loaded trip ${tripId} from ${source}`);
             if (tripData) {
-                setTrip(tripData);
+                setTrip(tripData as Trip);
             } else {
                 toast({
                 variant: 'destructive',
@@ -66,48 +67,25 @@ export default function TripPage() {
     setCurrentUser(user);
   }, [tripId, toast]);
 
-  // Effect to join trip and start location simulation
+  // Effect to join trip and publish location updates
   useEffect(() => {
     if (!tripId || !currentUser || !trip?.destination) return;
 
-    // Initial join/update with best-known location
-    const initialParticipantPayload: Participant = {
+    const participantPayload: Participant = {
         id: currentUser.uid,
         name: currentUser.name,
         avatarUrl: `https://i.pravatar.cc/150?u=${currentUser.uid}`,
-        mode: 'unknown',
-        lat: trip.destination.lat, // Start near destination for simulation
-        lng: trip.destination.lng,
+        lat: lastPosition?.lat,
+        lng: lastPosition?.lng,
         status: 'On the way',
-        etaMinutes: 0,
+        mode: 'car', // hardcoded for demo
     };
-    joinOrUpdateParticipant(tripId, initialParticipantPayload);
-
-    const onLocationUpdate = (lat: number, lng: number) => {
-        const participantPayload: Participant = {
-            id: currentUser.uid,
-            name: currentUser.name,
-            avatarUrl: `https://i.pravatar.cc/150?u=${currentUser.uid}`,
-            lat,
-            lng,
-            status: 'On the way',
-            mode: 'car',
-            etaMinutes: 0,
-        };
-        joinOrUpdateParticipant(tripId, participantPayload);
-    };
-
-    const stopSimulation = startSimulatedMovement(
-      trip.destination.lat,
-      trip.destination.lng,
-      onLocationUpdate
-    );
-
-    return () => stopSimulation();
-  }, [tripId, currentUser, trip?.destination, joinOrUpdateParticipant]);
+    joinOrUpdateParticipant(participantPayload);
+  
+  }, [tripId, currentUser, lastPosition, joinOrUpdateParticipant, trip?.destination]);
   
   const refreshAllFriendsETA = useCallback(async () => {
-    const apiKey = process.env.NEXT_PUBLIC_TOMTOM_API_KEY;
+    const apiKey = process.env.NEXT_PUBLIC_TOMTOM_KEY;
     if (!apiKey || !trip?.destination) return;
 
     const destinationCoords = { lat: trip.destination.lat, lon: trip.destination.lng };
@@ -155,12 +133,12 @@ export default function TripPage() {
         userName: currentUser.name,
         avatarUrl: `https://i.pravatar.cc/150?u=${currentUser.uid}`
     };
-    await sendMessage(tripId, payload);
+    await sendMessage(payload);
   };
 
   const handleAddExpense = async (newExpense: { paidBy: string; amount: number; label: string }) => {
     if (!tripId) return;
-    await addExpense(tripId, newExpense);
+    await addExpense(newExpense);
   }
 
   const mapParticipants = useMemo(() => {
@@ -196,6 +174,17 @@ export default function TripPage() {
     });
   }, [participants, friendsETA]);
 
+  const StatusIndicator = () => {
+      const icon = status === 'online' ? <Wifi className="h-4 w-4 text-green-500"/> : <WifiOff className="h-4 w-4 text-red-500" />;
+      const text = status === 'online' ? 'Live' : 'Offline';
+      return (
+          <div className='flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground'>
+              {icon}
+              <span>{text}</span>
+          </div>
+      );
+  }
+
   return (
     <div className="flex flex-col h-screen bg-gray-50 dark:bg-black">
       <TempEmuCheck />
@@ -207,6 +196,7 @@ export default function TripPage() {
               <div className="flex items-center gap-4 text-sm text-muted-foreground">
                  <p className="flex items-center gap-1"><MapPin className="h-4 w-4" /> {trip.destination.name}</p>
                  <TripCodeBadge code={trip.id} onCopy={copyCode} />
+                 <StatusIndicator />
               </div>
             </div>
             <div className="flex items-center gap-2">

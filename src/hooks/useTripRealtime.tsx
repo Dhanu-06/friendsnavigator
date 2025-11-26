@@ -1,21 +1,11 @@
-
 // src/hooks/useTripRealtime.tsx
-'use client';
-import { useEffect, useRef, useState, useCallback } from 'react';
-import { getFirebaseInstances } from '@/lib/firebaseClient';
-import {
-  collection,
-  doc,
-  setDoc,
-  addDoc,
-  onSnapshot,
-  query,
-  orderBy,
-  serverTimestamp,
-  type Firestore,
-} from 'firebase/firestore';
-import { getTripById, type Trip } from '@/lib/tripStore';
-import { saveTripLocal } from '@/lib/fallbackStore';
+"use client";
+
+import { useEffect, useState, useRef }s from "react";
+import { collection, onSnapshot, query, orderBy, addDoc, serverTimestamp, setDoc, doc } from "firebase/firestore";
+import { getFirebaseInstances } from "@/lib/firebaseClient";
+import { getTripLocal, saveTripLocal } from "@/lib/fallbackStore";
+import type { Trip } from "@/lib/tripStore";
 
 
 export type Participant = {
@@ -30,190 +20,163 @@ export type Participant = {
   coords?: { lat: number; lon: number };
 };
 
+export type Message = {
+    id: string;
+    senderId: string;
+    text: string;
+    userName: string;
+    avatarUrl: string;
+    createdAt: any;
+};
+
+export type Expense = {
+    id: string;
+    paidBy: string;
+    amount: number;
+    label: string;
+};
+
+
 const useEmulator = process.env.NEXT_PUBLIC_USE_FIREBASE_EMULATOR === 'true';
 
-export default function useTripRealtime(tripId?: string) {
+export default function useTripRealtime(tripId: string) {
   const [participants, setParticipants] = useState<Participant[]>([]);
-  const [messages, setMessages] = useState<any[]>([]);
-  const [expenses, setExpenses] = useState<any[]>([]);
-  const participantsUnsub = useRef<(() => void) | null>(null);
-  const messagesUnsub = useRef<(() => void) | null>(null);
-  const expensesUnsub = useRef<(() => void) | null>(null);
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [expenses, setExpenses] = useState<Expense[]>([]);
+  const [status, setStatus] = useState<"connecting" | "online" | "offline" | "error">("connecting");
+  const [error, setError] = useState<any>(null);
+  const unsubs = useRef<(()=>void)[]>([]);
 
   useEffect(() => {
-    if (!tripId) return;
+    if (!tripId) {
+      setParticipants([]);
+      setMessages([]);
+      setExpenses([]);
+      setStatus("offline");
+      return;
+    }
 
+    // clear previous listeners
+    unsubs.current.forEach(u => u());
+    unsubs.current = [];
+
+    setStatus("connecting");
+
+    // Only connect if emulator is enabled
     if (!useEmulator) {
-        if (typeof window !== 'undefined') {
-          console.warn('Realtime hook: Emulator disabled. Using local fallback for all data.');
-          const t = getTripById(tripId);
-          if (t) {
-              setParticipants(t.participants ?? []);
-              setMessages(t.messages ?? []);
-              setExpenses(t.expenses ?? []);
-          }
+        console.warn("Realtime hook: Emulator disabled. Using local fallback for all data.");
+        const t = getTripLocal(tripId);
+        if (t) {
+            setParticipants(t.participants ?? []);
+            setMessages(t.messages ?? []);
+            setExpenses(t.expenses ?? []);
         }
+        setStatus("offline");
         return;
     }
     
-    const { firestore } = getFirebaseInstances();
-    if (!firestore) {
-        console.error("useTripRealtime: Firestore instance is not available. Check Firebase client initialization.");
-        return;
-    }
-
-
-    // Try setting up Firestore listeners
     try {
-      const db = firestore as Firestore;
-      const pCol = collection(db, 'trips', tripId, 'participants');
-      participantsUnsub.current = onSnapshot(pCol, (snap) => {
-        const arr: Participant[] = [];
-        snap.forEach((d) => arr.push({ id: d.id, ...(d.data() as any) }));
-        setParticipants(arr);
-      }, (err) => {
-          console.error("Participants snapshot error, falling back to local.", err);
-          const t = getTripById(tripId);
-          if (t) setParticipants(t.participants ?? []);
-      });
+      const { firestore } = getFirebaseInstances();
+      if (!firestore) {
+          throw new Error("Firestore not initialized.");
+      }
 
-      const mCol = query(collection(db, 'trips', tripId, 'messages'), orderBy('createdAt', 'asc'));
-      messagesUnsub.current = onSnapshot(mCol, (snap) => {
-        const arr: any[] = [];
-        snap.forEach((d) => arr.push({ id: d.id, ...(d.data() as any) }));
-        setMessages(arr);
-      }, (err) => {
-          console.error("Messages snapshot error, falling back to local.", err);
-          const t = getTripById(tripId);
-          if (t) setMessages(t.messages ?? []);
-      });
-
-      const eCol = collection(db, 'trips', tripId, 'expenses');
-      expensesUnsub.current = onSnapshot(eCol, (snap) => {
-        const arr: any[] = [];
-        snap.forEach((d) => arr.push({ id: d.id, ...(d.data() as any) }));
-        setExpenses(arr);
-      }, (err) => {
-          console.error("Expenses snapshot error, falling back to local.", err);
-          const t = getTripById(tripId);
-          if (t) setExpenses(t.expenses ?? []);
-      });
-
-      return () => {
-        if(participantsUnsub.current) participantsUnsub.current();
-        if(messagesUnsub.current) messagesUnsub.current();
-        if(expensesUnsub.current) expensesUnsub.current();
+      const setupSubscription = (colName: string, setter: Function, localField: keyof Trip) => {
+        const colRef = collection(firestore, "trips", tripId, colName);
+        let q = query(colRef);
+        if (colName === 'messages') {
+            q = query(colRef, orderBy("createdAt", "asc"));
+        }
+        
+        const unsub = onSnapshot(q, (snapshot) => {
+          const arr: any[] = [];
+          snapshot.forEach((doc) => arr.push({ id: doc.id, ...doc.data() }));
+          setter(arr);
+          setStatus("online");
+        }, (err) => {
+          console.error(`useTripRealtime (${colName}) snapshot error`, err);
+          setError(err);
+          try {
+            const trip = getTripLocal(tripId);
+            if (trip && trip[localField]) setter(trip[localField]);
+            setStatus("offline");
+          } catch (e) {
+            setStatus("error");
+          }
+        });
+        unsubs.current.push(unsub);
       };
-    } catch (err) {
-      // If Firestore unavailable, fall back to local trip data
-      console.warn('Realtime hook: Firestore unavailable, using local fallback', err);
-      const t = getTripById(tripId);
-      if (t) {
-        setParticipants(t.participants ?? []);
-        setMessages(t.messages ?? []);
-        setExpenses(t.expenses ?? []);
+
+      setupSubscription('participants', setParticipants, 'participants');
+      setupSubscription('messages', setMessages, 'messages');
+      setupSubscription('expenses', setExpenses, 'expenses');
+
+    } catch (e) {
+      console.error("useTripRealtime init error", e);
+      try {
+        const trip = getTripLocal(tripId);
+        if (trip) {
+            setParticipants(trip.participants ?? []);
+            setMessages(trip.messages ?? []);
+            setExpenses(trip.expenses ?? []);
+        }
+        setStatus("offline");
+      } catch (ee) {
+        setStatus("error");
+        setError(ee);
       }
     }
+
+    return () => {
+      unsubs.current.forEach(u => u());
+    };
   }, [tripId]);
 
-  const updateLocalTrip = useCallback((tripId: string, update: (trip: Trip) => Trip) => {
-    const trip = getTripById(tripId);
-    if (trip) {
-      const updatedTrip = update(trip);
-      saveTripLocal(updatedTrip.id, updatedTrip);
-      setParticipants([...(updatedTrip.participants ?? [])]);
-      setMessages([...(updatedTrip.messages ?? [])]);
-      setExpenses([...(updatedTrip.expenses ?? [])]);
-    }
-  }, []);
-
-  // join or update a participant
-  const joinOrUpdateParticipant = useCallback(async (tripIdStr: string, p: Participant) => {
-    const { firestore } = getFirebaseInstances();
-    if (!useEmulator || !firestore) {
-        updateLocalTrip(tripIdStr, (trip) => {
-          const newParticipants = [...(trip.participants ?? [])];
-          const idx = newParticipants.findIndex(x => x.id === p.id);
-          if (idx >= 0) newParticipants[idx] = { ...newParticipants[idx], ...p };
-          else newParticipants.push(p);
-          trip.participants = newParticipants;
-          return trip;
-        });
-        return { ok: true, source: 'local' };
-    }
-    try {
-      await setDoc(doc(firestore as Firestore, 'trips', tripIdStr, 'participants', p.id), {
-        ...p,
-        updatedAt: serverTimestamp(),
-      }, { merge: true });
-      return { ok: true, source: 'firestore' };
-    } catch (err) {
-      console.warn('joinOrUpdateParticipant failed, falling back to local', err);
-      updateLocalTrip(tripIdStr, (trip) => {
-        const newParticipants = [...(trip.participants ?? [])];
-        const idx = newParticipants.findIndex(x => x.id === p.id);
-        if (idx >= 0) newParticipants[idx] = { ...newParticipants[idx], ...p };
-        else newParticipants.push(p);
-        trip.participants = newParticipants;
-        return trip;
-      });
-      return { ok: false, error: err, source: 'local' };
-    }
-  }, [updateLocalTrip]);
-
-  const sendMessage = useCallback(async (tripIdStr: string, payload:{senderId:string, text:string, userName: string, avatarUrl: string}) => {
-    const { firestore } = getFirebaseInstances();
-     if (!useEmulator || !firestore) {
-        updateLocalTrip(tripIdStr, (trip) => {
-          trip.messages = [...(trip.messages ?? []), { id: String(Date.now()), ...payload, createdAt: new Date().toISOString() }];
-          return trip;
-        });
-        return { ok: true, source: 'local' };
-    }
-    try {
-      await addDoc(collection(firestore as Firestore, 'trips', tripIdStr, 'messages'), {
-        ...payload, createdAt: serverTimestamp()
-      });
-      return { ok: true, source: 'firestore' };
-    } catch (err) {
-      console.warn('sendMessage failed, falling back to local', err);
-      updateLocalTrip(tripIdStr, (trip) => {
-        trip.messages = [...(trip.messages ?? []), { id: String(Date.now()), ...payload, createdAt: new Date().toISOString() }];
-        return trip;
-      });
-      return { ok:false, error:err, source: 'local' };
-    }
-  }, [updateLocalTrip]);
-
-  const addExpense = useCallback(async (tripIdStr: string, payload:{paidBy:string,amount:number,label:string}) => {
-    const { firestore } = getFirebaseInstances();
-     if (!useEmulator || !firestore) {
-       updateLocalTrip(tripIdStr, (trip) => {
-          trip.expenses = [...(trip.expenses ?? []), { id: String(Date.now()), ...payload }];
-          return trip;
-        });
-
-       return { ok: true, source: 'local' };
-    }
-    try {
-      await addDoc(collection(firestore as Firestore, 'trips', tripIdStr, 'expenses'), { ...payload, createdAt: serverTimestamp() });
-      return { ok:true, source: 'firestore' };
-    } catch (err) {
-      console.warn('addExpense failed, falling back to local', err);
-      updateLocalTrip(tripIdStr, (trip) => {
-          trip.expenses = [...(trip.expenses ?? []), { id: String(Date.now()), ...payload }];
-          return trip;
-        });
-      return { ok:false, error:err, source: 'local' };
-    }
-  }, [updateLocalTrip]);
-
-  return {
-    participants,
-    messages,
-    expenses,
-    joinOrUpdateParticipant,
-    sendMessage,
-    addExpense,
+  const joinOrUpdateParticipant = async (p: Participant) => {
+      if(!tripId) return;
+      try {
+        const { firestore } = getFirebaseInstances();
+        await setDoc(doc(firestore, "trips", tripId, 'participants', p.id), p, { merge: true });
+      } catch (e) {
+          console.warn("joinOrUpdateParticipant firestore error, falling back to local.", e);
+          const trip = getTripLocal(tripId) || {id: tripId, participants: [], messages:[], expenses:[]};
+          const existing = trip.participants.findIndex(par => par.id === p.id);
+          if (existing !== -1) trip.participants[existing] = { ...trip.participants[existing], ...p };
+          else trip.participants.push(p);
+          saveTripLocal(tripId, trip);
+          setParticipants([...trip.participants]);
+      }
   };
+
+  const sendMessage = async (payload: Omit<Message, 'id' | 'createdAt'>) => {
+      if(!tripId) return;
+      try {
+        const { firestore } = getFirebaseInstances();
+        await addDoc(collection(firestore, "trips", tripId, 'messages'), {
+            ...payload, createdAt: serverTimestamp()
+        });
+      } catch (e) {
+          console.warn("sendMessage firestore error, falling back to local.", e);
+          const trip = getTripLocal(tripId) || {id: tripId, participants: [], messages:[], expenses:[]};
+          trip.messages.push({ ...payload, id: `${Date.now()}`, createdAt: new Date().toISOString() });
+          saveTripLocal(tripId, trip);
+          setMessages([...trip.messages]);
+      }
+  };
+
+  const addExpense = async (payload: Omit<Expense, 'id'>) => {
+      if(!tripId) return;
+      try {
+        const { firestore } = getFirebaseInstances();
+        await addDoc(collection(firestore, "trips", tripId, 'expenses'), payload);
+      } catch (e) {
+          console.warn("addExpense firestore error, falling back to local.", e);
+          const trip = getTripLocal(tripId) || {id: tripId, participants: [], messages:[], expenses:[]};
+          trip.expenses.push({ ...payload, id: `${Date.now()}` });
+          saveTripLocal(tripId, trip);
+          setExpenses([...trip.expenses]);
+      }
+  };
+
+  return { participants, messages, expenses, status, error, joinOrUpdateParticipant, sendMessage, addExpense };
 }
