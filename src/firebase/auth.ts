@@ -18,6 +18,9 @@ export async function signUpWithEmail(name: string, email: string, password: str
     return { user: cred.user, error: null };
   } catch (err: any) {
     console.error('signUp error', err);
+    if (err.code === 'auth/network-request-failed') {
+      return { user: null, error: 'Network error. Please check your connection or ensure the Firebase emulator is running.' };
+    }
     return { user: null, error: (err?.message ?? String(err)) };
   }
 }
@@ -28,6 +31,9 @@ export async function signInWithEmail(email: string, password: string) {
     return { user: cred.user, error: null };
   } catch (err: any) {
     console.error('signIn error', err);
+    if (err.code === 'auth/network-request-failed') {
+      return { user: null, error: 'Network error: Could not connect to authentication service. If you are developing locally, please ensure the Firebase emulator is running (`npm run emulators`).' };
+    }
     return { user: null, error: (err?.message ?? String(err)) };
   }
 }
