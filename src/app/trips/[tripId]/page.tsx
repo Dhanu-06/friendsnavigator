@@ -1,190 +1,140 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
-import { useParams, useRouter } from 'next/navigation';
-import { useUser } from '@/firebase';
-import type { Trip, User, Location, Participant } from '@/lib/types';
-import { Header } from '@/components/header';
-import { MapView } from '@/components/map-view';
-import { InviteDialog } from '@/components/invite-dialog';
+import { useState } from 'react';
+import { useParams } from 'next/navigation';
 import { Button } from '@/components/ui/button';
-import { UserPlus, Copy, MessageSquare, Map } from 'lucide-react';
-import { useToast } from '@/hooks/use-toast';
-import { Skeleton } from '@/components/ui/skeleton';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ChatPanel } from '@/components/chat-panel';
-import { ParticipantsPanel } from '@/components/participants-panel';
+import { Card } from '@/components/ui/card';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import {
+  Copy,
+  MessageCircle,
+  Phone,
+  Video,
+  Users,
+  CreditCard,
+  MapPin,
+} from 'lucide-react';
+import MapClient from '@/components/trip/MapClient';
+import { ParticipantsList, type Participant } from '@/components/trip/ParticipantsList';
+import { ChatBox, type Message } from '@/components/trip/ChatBox';
+import { ExpenseCalculator, type Expense } from '@/components/trip/ExpenseCalculator';
+import { TripCodeBadge } from '@/components/trip/TripCodeBadge';
+import { useToast } from '@/components/ui/use-toast';
 
-const DUMMY_PARTICIPANTS: Participant[] = [
-    {
-      id: 'user1',
-      name: 'Sarah',
-      avatarUrl: 'https://picsum.photos/seed/user1/40/40',
-      currentLocation: { lat: 12.9796, lng: 77.5906 },
-      selectedMode: 'ola',
-      suggestion: {
-        recommendedMode: 'ola',
-        options: [
-            { mode: 'ola', etaMinutes: 25, costEstimate: 250, explanation: 'Fastest cab option.' },
-            { mode: 'metro', etaMinutes: 35, costEstimate: 50, explanation: 'Cheaper, but involves a walk.' }
-        ],
-        lastCalculatedAt: new Date()
-      }
-    },
-    {
-      id: 'user2',
-      name: 'Mike',
-      avatarUrl: 'https://picsum.photos/seed/user2/40/40',
-      currentLocation: { lat: 12.9616, lng: 77.6046 },
-    },
-];
-
-const DUMMY_TRIP: Omit<Trip, 'id'> = {
-    name: 'Team Outing to Koramangala',
-    destination: {
-        name: 'Koramangala Social',
-        lat: 12.9352,
-        lng: 77.6245
-    },
-    description: "Let's finally meet up!",
-    ownerId: 'user1',
-    participantIds: ['user1', 'user2', 'user3'],
-    tripType: 'within-city',
+// --- MOCK DATA ---
+const mockTrip = {
+  name: 'Weekend to Nandi Hills',
+  destination: 'Nandi Hills View Point',
+  tripType: 'Out of City',
+  code: 'NANDI-5678',
 };
 
+const mockParticipants: Participant[] = [
+  { id: '1', name: 'Dhanushree', mode: 'Cab (Ola)', eta: '25 min', status: 'On the way', avatarUrl: 'https://i.pravatar.cc/150?u=dhanushree', location: { lat: 13.35, lng: 77.67 } },
+  { id: '2', name: 'Riya', mode: 'Rapido', eta: '18 min', status: 'On the way', avatarUrl: 'https://i.pravatar.cc/150?u=riya', location: { lat: 13.36, lng: 77.69 } },
+  { id: '3', name: 'Rahul', mode: 'BMTC', eta: '40 min', status: 'Delayed', avatarUrl: 'https://i.pravatar.cc/150?u=rahul', location: { lat: 13.34, lng: 77.66 } },
+  { id: '4', name: 'Akash', mode: 'Own Vehicle', eta: '30 min', status: 'Reached', avatarUrl: 'https://i.pravatar.cc/150?u=akash', location: { lat: 13.3702, lng: 77.6835 } },
+];
+
+const mockMessages: Message[] = [
+    { id: '1', userName: 'Riya', text: 'Just left, traffic is crazy!', timestamp: '10:30 AM', avatarUrl: 'https://i.pravatar.cc/150?u=riya' },
+    { id: '2', userName: 'Dhanushree', text: 'Same here, my cab is taking a detour.', timestamp: '10:32 AM', avatarUrl: 'https://i.pravatar.cc/150?u=dhanushree' },
+    { id: '3', userName: 'Akash', text: 'I am already here, the view is amazing! 🌄', timestamp: '10:35 AM', avatarUrl: 'https://i.pravatar.cc/150?u=akash' },
+];
+
+const mockExpenses: Expense[] = [
+    { id: '1', paidBy: 'Akash', amount: 300, label: 'Entry Tickets' },
+    { id: '2', paidBy: 'Dhanushree', amount: 550, label: 'Breakfast' },
+]
+
+
 export default function TripPage() {
-  const { tripId } = useParams() as { tripId: string };
-  const router = useRouter();
-  const { user, isUserLoading: isAuthLoading } = useUser();
+  const params = useParams();
   const { toast } = useToast();
+  const [messages, setMessages] = useState(mockMessages);
+  const [expenses, setExpenses] = useState(mockExpenses);
 
-  const [isInviteOpen, setInviteOpen] = useState(false);
-  
-  // --- Local State for Dummy Data ---
-  const [tripData, setTripData] = useState<Trip | null>(null);
-  const [participantsData, setParticipantsData] = useState<Participant[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const friendLocations = mockParticipants.map(p => ({
+    id: p.id,
+    name: p.name,
+    ...p.location
+  }));
 
-  // --- Effects ---
-
-  // Redirect if user is not authenticated
-  useEffect(() => {
-    if (!isAuthLoading && !user) {
-      router.push('/login');
-    }
-  }, [user, isAuthLoading, router]);
-
-  // Simulate fetching data
-  useEffect(() => {
-    setIsLoading(true);
-    const timer = setTimeout(() => {
-      const currentUserFromAuth = user;
-      
-      const selfParticipant: Participant = {
-        id: currentUserFromAuth?.uid || 'user3',
-        name: currentUserFromAuth?.displayName || 'You',
-        avatarUrl: currentUserFromAuth?.photoURL || 'https://picsum.photos/seed/user3/40/40',
-        currentLocation: { lat: 12.9716, lng: 77.5946 }, // User's location
-      };
-
-      setTripData({ ...DUMMY_TRIP, id: tripId });
-      setParticipantsData([...DUMMY_PARTICIPANTS, selfParticipant]);
-      setIsLoading(false);
-    }, 800); // Simulate network latency
-
-    return () => clearTimeout(timer);
-  }, [tripId, user]);
-
-
-  const locationsMap = React.useMemo(() => {
-    return participantsData.reduce((acc, p) => {
-      if (p.currentLocation) {
-        acc[p.id] = {
-            id: p.id,
-            lat: p.currentLocation.lat,
-            lng: p.currentLocation.lng,
-            lastUpdated: new Date()
-        }
-      }
-      return acc;
-    }, {} as Record<string, Location>);
-  }, [participantsData]);
-
-
-  const copyJoinCode = () => {
-    navigator.clipboard.writeText(tripId);
-    toast({ title: "Copied!", description: "Trip join code copied to clipboard." });
+  const copyCode = () => {
+    navigator.clipboard.writeText(mockTrip.code);
+    toast({ title: 'Trip code copied!' });
   };
   
-  const currentAppUser = user ? { ...user, uid: user.uid, displayName: user.displayName || 'You', photoURL: user.photoURL || ''} as User : null;
-
-  const handleParticipantUpdate = useCallback((updatedData: Partial<Participant>) => {
-    if (!user) return;
-    setParticipantsData(prev => 
-        prev.map(p => p.id === user.uid ? { ...p, ...updatedData } : p)
-    );
-  }, [user]);
-
-
   return (
-      <div className="flex flex-col h-screen bg-background text-foreground overflow-hidden">
-        <Header />
-        <main className="flex-1 grid grid-cols-1 md:grid-cols-[1fr_380px] xl:grid-cols-[1fr_420px] overflow-hidden">
-          
-          {/* Left Panel (Map & Chat) */}
-           <section className="bg-muted/30 h-full flex flex-col">
-             <Tabs defaultValue="map" className="flex-1 flex flex-col overflow-hidden">
-                <div className="p-4 border-b">
-                    <TabsList>
-                        <TabsTrigger value="map"><Map className="mr-2"/> Map</TabsTrigger>
-                        <TabsTrigger value="chat"><MessageSquare className="mr-2"/> Chat</TabsTrigger>
-                    </TabsList>
-                </div>
-                <TabsContent value="map" className="flex-1 overflow-auto p-4">
-                     <MapView participants={participantsData} locations={locationsMap} />
-                </TabsContent>
-                <TabsContent value="chat" className="flex-1 flex flex-col overflow-auto">
-                    <ChatPanel currentUser={user} participants={participantsData} />
-                </TabsContent>
-            </Tabs>
-          </section>
-
-          {/* Right Panel */}
-          <aside className="border-l border-border flex flex-col h-full p-4 gap-4 overflow-y-auto">
-            {isLoading ? (
-              <>
-                <Skeleton className="h-8 w-3/4" />
-                <Skeleton className="h-6 w-1/2" />
-              </>
-            ) : (
-              <div>
-                <h1 className="text-2xl font-bold">{tripData?.name}</h1>
-                <p className="text-muted-foreground">{tripData?.destination.name}</p>
+    <div className="flex flex-col h-screen bg-gray-50 dark:bg-black">
+      {/* Header */}
+      <header className="flex-shrink-0 border-b bg-background">
+        <div className="container mx-auto px-4 py-3">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+            <div>
+              <h1 className="text-2xl font-bold font-heading">{mockTrip.name}</h1>
+              <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                 <p className="flex items-center gap-1"><MapPin className="h-4 w-4" /> {mockTrip.destination}</p>
+                 <TripCodeBadge code={mockTrip.code} onCopy={copyCode} />
               </div>
-            )}
+            </div>
+            <div className="flex items-center gap-2">
+              <Button variant="outline" size="sm"><Phone className="h-4 w-4 mr-2" /> Voice Call</Button>
+              <Button variant="outline" size="sm"><Video className="h-4 w-4 mr-2" /> Video Call</Button>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      {/* Main Content */}
+      <main className="flex-1 overflow-hidden">
+        <div className="container mx-auto h-full px-4 py-4">
+          <div className="grid md:grid-cols-3 lg:grid-cols-4 gap-6 h-full">
             
-            <div className="flex gap-2">
-                <Button onClick={() => setInviteOpen(true)} className="flex-1">
-                    <UserPlus /> Invite Friend
-                </Button>
-                <Button onClick={copyJoinCode} variant="secondary" className="flex-1">
-                    <Copy /> Join Code
-                </Button>
+            {/* Left/Main Column */}
+            <div className="md:col-span-2 lg:col-span-3 h-full flex flex-col gap-6">
+               <Card className="flex-grow-[2] flex flex-col">
+                  <MapClient friends={friendLocations} center={{lat: 13.3702, lng: 77.6835}} />
+               </Card>
+               <Card className="flex-grow-[1]">
+                 <ParticipantsList participants={mockParticipants} />
+               </Card>
             </div>
 
-            <ParticipantsPanel 
-              participants={participantsData} 
-              isLoading={isLoading} 
-              currentUser={currentAppUser}
-              tripId={tripId}
-              destination={tripData?.destination}
-              tripType={tripData?.tripType}
-              onParticipantUpdate={handleParticipantUpdate}
-            />
-          </aside>
-          
-        </main>
-        <InviteDialog tripId={tripId} isOpen={isInviteOpen} onOpenChange={setInviteOpen} />
-      </div>
+            {/* Right Column */}
+            <div className="md:col-span-1 lg:col-span-1 h-full">
+              <Card className="h-full flex flex-col">
+                 <Tabs defaultValue="chat" className="flex-1 flex flex-col">
+                  <TabsList className="p-2 w-full grid grid-cols-3">
+                    <TabsTrigger value="chat"><MessageCircle className="h-4 w-4 mr-2" />Chat</TabsTrigger>
+                    <TabsTrigger value="call"><Phone className="h-4 w-4 mr-2" />Call</TabsTrigger>
+                    <TabsTrigger value="expenses"><CreditCard className="h-4 w-4 mr-2" />Expenses</TabsTrigger>
+                  </TabsList>
+                  <TabsContent value="chat" className="flex-1 overflow-y-auto">
+                    <ChatBox messages={messages} onSendMessage={(text) => setMessages(prev => [...prev, {id: String(Date.now()), userName: "You", text, timestamp: new Date().toLocaleTimeString(), avatarUrl: 'https://i.pravatar.cc/150?u=me'}])} />
+                  </TabsContent>
+                  <TabsContent value="call" className="p-6 text-center">
+                    <h3 className="font-semibold mb-2">Calling Feature</h3>
+                    <p className="text-sm text-muted-foreground mb-4">Group voice and video calls are coming soon!</p>
+                    <div className="flex flex-col gap-2">
+                        <Button disabled><Phone className="h-4 w-4 mr-2" /> Start Voice Call</Button>
+                        <Button disabled><Video className="h-4 w-4 mr-2" /> Start Video Call</Button>
+                    </div>
+                  </TabsContent>
+                  <TabsContent value="expenses" className="flex-1 overflow-y-auto p-4">
+                    <ExpenseCalculator 
+                        participants={mockParticipants} 
+                        expenses={expenses}
+                        onAddExpense={(expense) => setExpenses(prev => [...prev, {...expense, id: String(Date.now())}])}
+                    />
+                  </TabsContent>
+                </Tabs>
+              </Card>
+            </div>
+
+          </div>
+        </div>
+      </main>
+    </div>
   );
 }
