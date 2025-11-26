@@ -7,6 +7,7 @@ import useTripRealtime from "@/hooks/useTripRealtime";
 import useLiveLocation from "@/hooks/useLiveLocation";
 import { getTrip } from "@/lib/storeAdapter";
 import { openAppOrFallback } from "@/lib/appLink";
+import { reverseGeocodeClient } from "@/lib/reverseGeocode";
 
 const TomTomMapController = dynamic(() => import("@/components/trip/TomTomMapController"), { ssr: false });
 
@@ -37,6 +38,9 @@ export default function TripRoomClient({ tripId, currentUser, initialTrip = null
 
   // Local state for ETAs reported by server (matrix) or fallback
   const [etas, setEtas] = useState<Record<string, { etaSeconds: number | null; distanceMeters: number | null }>>({});
+
+  const [pickupName, setPickupName] = useState<string | null>(null);
+  const [destinationName, setDestinationName] = useState<string | null>(null);
 
   // Convert realtime participants into the shape Map expects
   const participants = useMemo(() => {
@@ -150,15 +154,12 @@ export default function TripRoomClient({ tripId, currentUser, initialTrip = null
       cancelled = true;
       clearInterval(iv);
     };
-    // depend on participants and destination coords
   }, [participants, tripMeta?.destination?.lat, tripMeta?.destination?.lng]);
 
   // ---------------------
   // Booking helpers
   // ---------------------
   function getPickup() {
-    // If current user exists and has a last-published location, use it. Otherwise use first participant coords.
-    // For simplicity we'll use the first participant (assuming currentUser also present in participants).
     const user = participants.find((p) => p.id === (currentUser?.id ?? "anon"));
     if (user?.coords) return user.coords;
     if (participants.length > 0 && participants[0].coords) return participants[0].coords;
@@ -169,11 +170,32 @@ export default function TripRoomClient({ tripId, currentUser, initialTrip = null
     if (tripMeta?.destination?.lat && typeof tripMeta.destination.lat === "number") {
       return tripMeta.destination;
     }
-    // fallback: use top friend's coords as destination
     const top = friendsETAList[0];
     if (top?.coords) return top.coords;
     return undefined;
   }
+
+  async function loadNames() {
+    const p = getPickup();
+    const d = getDestinationCoords();
+    if (p && typeof p.lat === "number" && typeof p.lng === "number") {
+      const name = await reverseGeocodeClient(p.lat, p.lng);
+      setPickupName(name);
+    } else {
+      setPickupName(null);
+    }
+    if (d && typeof d.lat === "number" && typeof d.lng === "number") {
+      const name = await reverseGeocodeClient(d.lat, d.lng);
+      setDestinationName(name);
+    } else {
+      setDestinationName(null);
+    }
+  }
+
+  useEffect(() => {
+    loadNames().catch((e) => console.warn("loadNames failed", e));
+  }, [participants.map(p => p.coords ? `${p.coords.lat},${p.coords.lng}` : "").join("|"), tripMeta?.destination?.lat, tripMeta?.destination?.lng]);
+
 
   function onBookUber() {
     const pickup = getPickup();
@@ -185,8 +207,9 @@ export default function TripRoomClient({ tripId, currentUser, initialTrip = null
     const pickupLat = pickup.lat, pickupLng = pickup.lng;
     const dropLat = dest.lat, dropLng = dest.lng;
 
-    // Uber web link (opens app if installed) — recommended
-    const mUber = `https://m.uber.com/ul/?action=setPickup&pickup[latitude]=${pickupLat}&pickup[longitude]=${pickupLng}&dropoff[latitude]=${dropLat}&dropoff[longitude]=${dropLng}`;
+    const pickupLabel = encodeURIComponent(pickupName || `${pickupLat},${pickupLng}`);
+    const dropLabel = encodeURIComponent(destinationName || `${dropLat},${dropLng}`);
+    const mUber = `https://m.uber.com/ul/?action=setPickup&pickup[latitude]=${pickupLat}&pickup[longitude]=${pickupLng}&dropoff[latitude]=${dropLat}&dropoff[longitude]=${dropLng}&pickup[nickname]=${pickupLabel}&dropoff[nickname]=${dropLabel}`;
     const uberApp = `uber://?action=setPickup&pickup[latitude]=${pickupLat}&pickup[longitude]=${pickupLng}&dropoff[latitude]=${dropLat}&dropoff[longitude]=${dropLng}`;
     const play = "https://play.google.com/store/apps/details?id=com.ubercab";
 
@@ -203,9 +226,9 @@ export default function TripRoomClient({ tripId, currentUser, initialTrip = null
     const pickupLat = pickup.lat, pickupLng = pickup.lng;
     const dropLat = dest.lat, dropLng = dest.lng;
 
-    // Ola web booking (book.olacabs.com) — prefill params
-    const olaWeb = `https://book.olacabs.com/?lat=${pickupLat}&lng=${pickupLng}&drop_lat=${dropLat}&drop_lng=${dropLng}&pickup_name=Pickup&drop_name=Drop`;
-    // Ola doesn't have a widely used public scheme; use web fallback
+    const pickupLabel = encodeURIComponent(pickupName || "Pickup");
+    const dropLabel = encodeURIComponent(destinationName || "Drop");
+    const olaWeb = `https://book.olacabs.com/?lat=${pickupLat}&lng=${pickupLng}&drop_lat=${dropLat}&drop_lng=${dropLng}&pickup_name=${pickupLabel}&drop_name=${dropLabel}`;
     openAppOrFallback({ webUrl: olaWeb, playStoreUrl: "https://play.google.com/store/apps/details?id=com.olacabs.customer" });
   }
 
@@ -227,7 +250,7 @@ export default function TripRoomClient({ tripId, currentUser, initialTrip = null
           origin={tripMeta?.origin}
           destination={tripMeta?.destination}
           participants={participants}
-          computeRoutes={false} /* we use Matrix API for ETAs; per-origin polylines disabled by default */
+          computeRoutes={false}
         />
       </div>
 
@@ -274,7 +297,11 @@ export default function TripRoomClient({ tripId, currentUser, initialTrip = null
 
         <div style={{ marginTop: 8, marginBottom: 6 }}>
           <div style={{ fontWeight: 700 }}>Quick ride</div>
-          <div style={{ fontSize: 12, color: "#666" }}>Open a ride app or transit directions</div>
+          <div style={{ marginTop: 6, marginBottom: 10, fontSize: 13, color: "#444" }}>
+            Pickup: {pickupName ?? (getPickup() ? `${getPickup()!.lat.toFixed(4)}, ${getPickup()!.lng.toFixed(4)}` : "unknown")}
+            <br />
+            Drop: {destinationName ?? (getDestinationCoords() ? `${getDestinationCoords()!.lat.toFixed(4)}, ${getDestinationCoords()!.lng.toFixed(4)}` : "unknown")}
+          </div>
         </div>
 
         <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
@@ -293,14 +320,13 @@ export default function TripRoomClient({ tripId, currentUser, initialTrip = null
 
           <button
             onClick={() => {
-              // Rapido: app deep link is not standardized; fall back to Rapido web or PlayStore
               const pickup = getPickup();
               const dest = getDestinationCoords();
               if (!pickup || !dest) {
                 alert("Pickup or destination not known yet.");
                 return;
               }
-              const rapWeb = "https://rapido.bike/"; // fallback home page — user must enter details there
+              const rapWeb = "https://rapido.bike/";
               openAppOrFallback({ webUrl: rapWeb, playStoreUrl: "https://play.google.com/store/apps/details?id=fast.rapido.driver" });
             }}
             style={{ flex: 1, padding: "8px 10px", background: "#ff5a00", color: "#fff", borderRadius: 8, border: "none" }}
