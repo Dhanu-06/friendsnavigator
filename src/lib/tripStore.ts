@@ -1,3 +1,4 @@
+
 // src/lib/tripStore.ts
 export type Trip = {
   id: string;
