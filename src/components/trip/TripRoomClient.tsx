@@ -6,6 +6,7 @@ import dynamic from "next/dynamic";
 import useTripRealtime from "@/hooks/useTripRealtime";
 import useLiveLocation from "@/hooks/useLiveLocation";
 import { getTrip } from "@/lib/storeAdapter";
+import { openAppOrFallback } from "@/lib/appLink";
 
 const TomTomMapController = dynamic(() => import("@/components/trip/TomTomMapController"), { ssr: false });
 
@@ -42,7 +43,7 @@ export default function TripRoomClient({ tripId, currentUser, initialTrip = null
     return (realtimeParticipants || []).map((p: any) => ({
       id: p.id,
       name: p.name || "Unknown",
-      avatar: p.avatar || null,
+      avatar: p.avatarUrl || null,
       coords: p.coords ? { lat: p.coords.lat, lng: p.coords.lng } : undefined,
     })) as Participant[];
   }, [realtimeParticipants]);
@@ -152,6 +153,73 @@ export default function TripRoomClient({ tripId, currentUser, initialTrip = null
     // depend on participants and destination coords
   }, [participants, tripMeta?.destination?.lat, tripMeta?.destination?.lng]);
 
+  // ---------------------
+  // Booking helpers
+  // ---------------------
+  function getPickup() {
+    // If current user exists and has a last-published location, use it. Otherwise use first participant coords.
+    // For simplicity we'll use the first participant (assuming currentUser also present in participants).
+    const user = participants.find((p) => p.id === (currentUser?.id ?? "anon"));
+    if (user?.coords) return user.coords;
+    if (participants.length > 0 && participants[0].coords) return participants[0].coords;
+    return undefined;
+  }
+
+  function getDestinationCoords() {
+    if (tripMeta?.destination?.lat && typeof tripMeta.destination.lat === "number") {
+      return tripMeta.destination;
+    }
+    // fallback: use top friend's coords as destination
+    const top = friendsETAList[0];
+    if (top?.coords) return top.coords;
+    return undefined;
+  }
+
+  function onBookUber() {
+    const pickup = getPickup();
+    const dest = getDestinationCoords();
+    if (!pickup || !dest) {
+      alert("Pickup or destination not known yet.");
+      return;
+    }
+    const pickupLat = pickup.lat, pickupLng = pickup.lng;
+    const dropLat = dest.lat, dropLng = dest.lng;
+
+    // Uber web link (opens app if installed) — recommended
+    const mUber = `https://m.uber.com/ul/?action=setPickup&pickup[latitude]=${pickupLat}&pickup[longitude]=${pickupLng}&dropoff[latitude]=${dropLat}&dropoff[longitude]=${dropLng}`;
+    const uberApp = `uber://?action=setPickup&pickup[latitude]=${pickupLat}&pickup[longitude]=${pickupLng}&dropoff[latitude]=${dropLat}&dropoff[longitude]=${dropLng}`;
+    const play = "https://play.google.com/store/apps/details?id=com.ubercab";
+
+    openAppOrFallback({ appUrl: uberApp, webUrl: mUber, playStoreUrl: play });
+  }
+
+  function onBookOla() {
+    const pickup = getPickup();
+    const dest = getDestinationCoords();
+    if (!pickup || !dest) {
+      alert("Pickup or destination not known yet.");
+      return;
+    }
+    const pickupLat = pickup.lat, pickupLng = pickup.lng;
+    const dropLat = dest.lat, dropLng = dest.lng;
+
+    // Ola web booking (book.olacabs.com) — prefill params
+    const olaWeb = `https://book.olacabs.com/?lat=${pickupLat}&lng=${pickupLng}&drop_lat=${dropLat}&drop_lng=${dropLng}&pickup_name=Pickup&drop_name=Drop`;
+    // Ola doesn't have a widely used public scheme; use web fallback
+    openAppOrFallback({ webUrl: olaWeb, playStoreUrl: "https://play.google.com/store/apps/details?id=com.olacabs.customer" });
+  }
+
+  function onOpenTransit() {
+    const dest = getDestinationCoords();
+    if (!dest) {
+      alert("Destination not known yet.");
+      return;
+    }
+    const d = `${dest.lat},${dest.lng}`;
+    const maps = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(d)}&travelmode=transit`;
+    openAppOrFallback({ webUrl: maps });
+  }
+
   return (
     <div style={{ display: "grid", gridTemplateColumns: "1fr 360px", gap: 12, height: "100vh" }}>
       <div style={{ height: "100%" }}>
@@ -159,7 +227,7 @@ export default function TripRoomClient({ tripId, currentUser, initialTrip = null
           origin={tripMeta?.origin}
           destination={tripMeta?.destination}
           participants={participants}
-          computeRoutes={false}
+          computeRoutes={false} /* we use Matrix API for ETAs; per-origin polylines disabled by default */
         />
       </div>
 
@@ -203,6 +271,43 @@ export default function TripRoomClient({ tripId, currentUser, initialTrip = null
             </div>
           ))
         )}
+
+        <div style={{ marginTop: 8, marginBottom: 6 }}>
+          <div style={{ fontWeight: 700 }}>Quick ride</div>
+          <div style={{ fontSize: 12, color: "#666" }}>Open a ride app or transit directions</div>
+        </div>
+
+        <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+          <button onClick={onBookUber} style={{ flex: 1, padding: "8px 10px", background: "#000", color: "#fff", borderRadius: 8, border: "none" }}>
+            Book Uber
+          </button>
+          <button onClick={onBookOla} style={{ flex: 1, padding: "8px 10px", background: "#0033a0", color: "#fff", borderRadius: 8, border: "none" }}>
+            Book Ola
+          </button>
+        </div>
+
+        <div style={{ display: "flex", gap: 8 }}>
+          <button onClick={onOpenTransit} style={{ flex: 1, padding: "8px 10px", background: "#0f9d58", color: "#fff", borderRadius: 8, border: "none" }}>
+            Transit (Maps)
+          </button>
+
+          <button
+            onClick={() => {
+              // Rapido: app deep link is not standardized; fall back to Rapido web or PlayStore
+              const pickup = getPickup();
+              const dest = getDestinationCoords();
+              if (!pickup || !dest) {
+                alert("Pickup or destination not known yet.");
+                return;
+              }
+              const rapWeb = "https://rapido.bike/"; // fallback home page — user must enter details there
+              openAppOrFallback({ webUrl: rapWeb, playStoreUrl: "https://play.google.com/store/apps/details?id=fast.rapido.driver" });
+            }}
+            style={{ flex: 1, padding: "8px 10px", background: "#ff5a00", color: "#fff", borderRadius: 8, border: "none" }}
+          >
+            Rapido
+          </button>
+        </div>
 
         <div style={{ marginTop: 16 }}>
           <div style={{ fontWeight: 700, marginBottom: 6 }}>Debug</div>
