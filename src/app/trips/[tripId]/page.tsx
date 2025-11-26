@@ -122,15 +122,16 @@ export default function TripPage() {
 
   const refreshAllFriendsETA = useCallback(async () => {
     const apiKey = process.env.NEXT_PUBLIC_TOMTOM_API_KEY;
-    if (!apiKey || !trip?.destination?.coords) return;
-  
+    if (!apiKey || !trip?.destination) return;
+
+    const destinationCoords = { lat: trip.destination.lat, lon: trip.destination.lng };
     const arr = [];
   
     for (const p of participants) {
-      if (!p.coords) continue; // skip offline friends
+      if (!p.lat || !p.lng) continue; // skip offline friends
       const eta = await getETAForParticipant(
-        p.coords,
-        trip.destination.coords,
+        { lat: p.lat, lon: p.lng },
+        destinationCoords,
         apiKey
       );
       if (eta) {
@@ -145,7 +146,7 @@ export default function TripPage() {
   
     arr.sort((a, b) => a.etaMinutes - b.etaMinutes); // fastest first  
     setFriendsETA(arr);
-  }, [participants, trip?.destination.coords]);
+  }, [participants, trip?.destination]);
 
   useEffect(() => {
     if (participants.length > 0) {
