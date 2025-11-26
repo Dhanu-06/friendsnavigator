@@ -8,22 +8,50 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/components/ui/use-toast';
 import { Navigation } from 'lucide-react';
+import React from 'react';
+import { auth } from '@/firebase/client';
+import { createUserWithEmailAndPassword, updateProfile } from 'firebase/auth';
 
 export default function SignupPage() {
   const router = useRouter();
   const { toast } = useToast();
+  const [name, setName] = React.useState('');
+  const [email, setEmail] = React.useState('');
+  const [password, setPassword] = React.useState('');
+  const [confirmPassword, setConfirmPassword] = React.useState('');
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    console.log('Signup form submitted');
-    toast({
-      title: 'Account Created! (Demo)',
-      description: "We've created your account. Redirecting...",
-    });
-    // In a real app, you'd wait for an API response
-    setTimeout(() => {
-      router.push('/dashboard');
-    }, 1000);
+    if (password !== confirmPassword) {
+      toast({
+        variant: "destructive",
+        title: 'Passwords do not match',
+        description: 'Please check your passwords and try again.',
+      });
+      return;
+    }
+
+    createUserWithEmailAndPassword(auth, email, password)
+      .then((userCredential) => {
+        // Signed up 
+        const user = userCredential.user;
+        updateProfile(user, { displayName: name }).then(() => {
+          toast({
+            title: 'Account Created!',
+            description: "We've created your account. Redirecting...",
+          });
+          router.push('/dashboard');
+        });
+      })
+      .catch((error) => {
+        const errorCode = error.code;
+        const errorMessage = error.message;
+        toast({
+          variant: "destructive",
+          title: 'Signup Failed',
+          description: errorMessage,
+        });
+      });
   };
 
   return (
@@ -44,7 +72,14 @@ export default function SignupPage() {
           <CardContent className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="name">Name</Label>
-              <Input id="name" type="text" placeholder="Dhanushree" required />
+              <Input 
+                id="name" 
+                type="text" 
+                placeholder="Dhanushree" 
+                required
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+              />
             </div>
             <div className="space-y-2">
               <Label htmlFor="email">Email</Label>
@@ -53,15 +88,29 @@ export default function SignupPage() {
                 type="email"
                 placeholder="dhanu@example.com"
                 required
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
               />
             </div>
             <div className="space-y-2">
               <Label htmlFor="password">Password</Label>
-              <Input id="password" type="password" required />
+              <Input 
+                id="password" 
+                type="password" 
+                required 
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+              />
             </div>
              <div className="space-y-2">
               <Label htmlFor="confirm-password">Confirm Password</Label>
-              <Input id="confirm-password" type="password" required />
+              <Input 
+                id="confirm-password" 
+                type="password" 
+                required 
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+              />
             </div>
           </CardContent>
           <CardFooter className="flex flex-col gap-4">
