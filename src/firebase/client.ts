@@ -1,13 +1,8 @@
 // src/firebase/client.ts
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getAuth, connectAuthEmulator } from 'firebase/auth';
-import {
-  getFirestore,
-  connectFirestoreEmulator,
-  enableIndexedDbPersistence
-} from 'firebase/firestore';
+import { getFirestore, connectFirestoreEmulator, enableIndexedDbPersistence } from 'firebase/firestore';
 
-// Replace these with your real values if not using emulator
 const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY ?? 'fake-key',
   authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN ?? 'localhost',
@@ -18,36 +13,31 @@ const firebaseConfig = {
 };
 
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApps()[0];
-
-// exports
 export const auth = getAuth(app);
 export const db = getFirestore(app);
 
-// connect to emulators if flag true
+console.log('FIREBASE ENV:', {
+  USE_EMULATOR: process.env.NEXT_PUBLIC_USE_FIREBASE_EMULATOR,
+  API_KEY_PRESENT: !!process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
+  TOMTOM_KEY_PRESENT: !!process.env.NEXT_PUBLIC_TOMTOM_API_KEY
+});
+
 if (process.env.NEXT_PUBLIC_USE_FIREBASE_EMULATOR === 'true') {
   try {
-    // Auth emulator at 9099, Firestore emulator at 8080
+    console.log('Connecting to Firebase emulators (auth:9099, firestore:8080)');
     connectAuthEmulator(auth, 'http://127.0.0.1:9099', { disableWarnings: true });
     connectFirestoreEmulator(db, '127.0.0.1', 8080);
-    console.log('Connected Firebase client to local emulators');
+    console.log('Connected to Firebase emulators');
   } catch (e) {
-    console.warn('Failed to connect to emulators', e);
+    console.warn('Emulator connection failed', e);
   }
+} else {
+  console.log('Using cloud Firebase config');
 }
 
-// optional: enable persistence local dev - safe with emulator
-try {
-    enableIndexedDbPersistence(db).catch((err: any) => {
-        // ignore in emulator if not available
-        if (String(err).includes('multiple-tabs')) {
-            // This is a normal error when multiple tabs are open
-        } else {
-            console.warn('IndexedDB persistence not enabled:', err?.message ?? err);
-        }
-    });
-} catch(err: any) {
-        console.warn('IndexedDB persistence not available:', err?.message ?? err);
-}
-
+enableIndexedDbPersistence(db).catch((e) => {
+  if (String(e).includes('multiple-tabs')) return;
+  console.warn('Persistence not enabled:', e?.message ?? e);
+});
 
 export default app;
