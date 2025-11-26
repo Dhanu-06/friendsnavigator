@@ -16,13 +16,15 @@ const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 export const auth = getAuth(app);
 export const db = getFirestore(app);
 
+const useEmulator = process.env.NEXT_PUBLIC_USE_FIREBASE_EMULATOR === 'true';
+
 console.log('FIREBASE ENV:', {
-  USE_EMULATOR: process.env.NEXT_PUBLIC_USE_FIREBASE_EMULATOR,
+  USE_EMULATOR: useEmulator,
   API_KEY_PRESENT: !!process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
   TOMTOM_KEY_PRESENT: !!process.env.NEXT_PUBLIC_TOMTOM_API_KEY
 });
 
-if (process.env.NEXT_PUBLIC_USE_FIREBASE_EMULATOR === 'true') {
+if (useEmulator) {
   const FIRESTORE_HOST = process.env.NEXT_PUBLIC_FIRESTORE_EMULATOR_HOST || 'localhost';
   const FIRESTORE_PORT = Number(process.env.NEXT_PUBLIC_FIRESTORE_EMULATOR_PORT || 8080);
   const AUTH_HOST = process.env.NEXT_PUBLIC_FIREBASE_AUTH_EMULATOR_HOST || 'localhost';
@@ -40,12 +42,12 @@ if (process.env.NEXT_PUBLIC_USE_FIREBASE_EMULATOR === 'true') {
     connectFirestoreEmulator(db, FIRESTORE_HOST, FIRESTORE_PORT);
     // @ts-ignore
     db.settings && db.settings({ experimentalForceLongPolling: true });
-     console.log('Successfully connected to Firestore emulator with long-polling enabled.');
+     console.log('Successfully configured connection to Firestore emulator with long-polling enabled.');
   } catch (err) {
     console.error("Firestore emulator connect error:", err);
   }
 } else {
-  console.log('Using cloud Firebase config.');
+  console.log('Using cloud Firebase config. Emulators are not connected.');
 }
 
 // Only attempt persistence in browser environments
@@ -57,8 +59,9 @@ if (typeof window !== 'undefined') {
     } else if (err.code == 'unimplemented') {
       // The current browser does not support all of the
       // features required to enable persistence.
+    } else {
+     console.warn('Persistence not enabled:', err.message);
     }
-     console.warn('Persistence not enabled:', err?.message ?? err);
   });
 }
 
