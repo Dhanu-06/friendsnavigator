@@ -13,6 +13,18 @@ import {
 } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { ArrowRight, PlusCircle, Users } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { getCurrentUser, type LocalUser } from '@/lib/localAuth';
+
+function useLocalUser() {
+  const [user, setUser] = useState<LocalUser | null>(null);
+
+  useEffect(() => {
+    setUser(getCurrentUser());
+  }, []);
+
+  return user;
+}
 
 const recentTrips = [
   {
@@ -29,6 +41,7 @@ const recentTrips = [
 
 export default function DashboardPage() {
   const router = useRouter();
+  const user = useLocalUser();
 
   const handleJoinTrip = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -48,7 +61,7 @@ export default function DashboardPage() {
       <main className="container py-8">
         <div className="mb-8">
           <h2 className="text-3xl font-bold font-heading">
-            Welcome back, Dhanushree 👋
+            Welcome back, {user?.name ?? 'Friend'} 👋
           </h2>
           <p className="text-muted-foreground">
             Ready for your next adventure?

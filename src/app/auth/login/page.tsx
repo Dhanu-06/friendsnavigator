@@ -1,75 +1,40 @@
-
 'use client';
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import Link from 'next/link';
-import { signInWithEmail } from '@/firebase/auth';
-import { Button } from '@/components/ui/button';
+import { signInLocal } from '@/lib/localAuth';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Navigation } from 'lucide-react';
-import { useToast } from '@/components/ui/use-toast';
-import { GoogleAuthProvider, signInWithPopup } from 'firebase/auth';
-import { auth } from '@/firebase/client';
+import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { AlertCircle, Info } from 'lucide-react';
+import Link from 'next/link';
+import { Navigation } from 'lucide-react';
+
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [error, setError] = useState<string | null>(null);
-  const [fallbackNotice, setFallbackNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const router = useRouter();
-  const { toast } = useToast();
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
-    setBusy(true);
     setError(null);
-    setFallbackNotice(null);
-    
-    const result = await signInWithEmail(email, password);
-    setBusy(false);
-
-    if (result.error) {
-      setError(result.error);
-      return;
+    try {
+      setBusy(true);
+      await signInLocal(email, password);
+      setBusy(false);
+      router.push('/dashboard');
+    } catch (err: any) {
+      setBusy(false);
+      setError(err?.message ?? 'Failed to login');
     }
-    
-    if ((result as any).fallback === 'local') {
-        setFallbackNotice('Using local fallback auth because emulator/network is unavailable.');
-    }
-
-    toast({
-      title: 'Login Successful!',
-      description: 'Redirecting to your dashboard...',
-    });
-    router.push('/dashboard');
   }
 
-  const handleGoogleSignIn = () => {
-    const provider = new GoogleAuthProvider();
-    setBusy(true);
-    signInWithPopup(auth, provider)
-      .then((result) => {
-        setBusy(false);
-        const user = result.user;
-        toast({
-          title: 'Login Successful',
-          description: `Welcome ${user.displayName}!`,
-        });
-        router.push('/dashboard');
-      }).catch((error) => {
-        setBusy(false);
-        setError(error.message);
-      });
-  };
-
   return (
-    <div className="flex h-screen w-screen items-center justify-center bg-gray-50 dark:bg-gray-900">
+    <div className="flex h-screen w-screen items-center justify-center bg-gray-50 dark:bg-gray-900 p-4">
       <Card className="w-full max-w-sm">
         <form onSubmit={onSubmit}>
           <CardHeader className="text-center">
@@ -86,16 +51,8 @@ export default function LoginPage() {
           <CardContent className="space-y-4">
             {error && (
               <Alert variant="destructive">
-                <AlertCircle className="h-4 w-4" />
                 <AlertTitle>Login Failed</AlertTitle>
                 <AlertDescription>{error}</AlertDescription>
-              </Alert>
-            )}
-             {fallbackNotice && (
-              <Alert variant="default" className="bg-blue-50 border-blue-200 text-blue-800 dark:bg-blue-900/30 dark:border-blue-700 dark:text-blue-300">
-                <Info className="h-4 w-4" />
-                <AlertTitle>Developer Notice</AlertTitle>
-                <AlertDescription>{fallbackNotice}</AlertDescription>
               </Alert>
             )}
             <div className="space-y-2">
@@ -122,11 +79,9 @@ export default function LoginPage() {
           </CardContent>
           <CardFooter className="flex flex-col gap-4">
             <Button type="submit" className="w-full" disabled={busy}>
-              {busy ? 'Signing in…' : 'Login'}
+              {busy ? 'Logging in…' : 'Login'}
             </Button>
-            <Button variant="outline" className="w-full" onClick={handleGoogleSignIn} type="button" disabled={busy}>
-              Sign in with Google
-            </Button>
+            
             <p className="text-xs text-muted-foreground">
               Don&apos;t have an account?{' '}
               <Link
@@ -135,6 +90,10 @@ export default function LoginPage() {
               >
                 Sign Up
               </Link>
+            </p>
+             <p className="mt-2 text-center text-[11px] text-slate-400 px-4">
+              Note: This login uses local browser storage (not Firebase) so it always works in this
+              environment.
             </p>
           </CardFooter>
         </form>

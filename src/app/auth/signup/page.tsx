@@ -2,69 +2,48 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import Link from 'next/link';
-import { signUpWithEmail } from '@/firebase/auth';
-import { createUserDoc } from '@/firebase/firestore';
-import { Button } from '@/components/ui/button';
+import { signUpLocal } from '@/lib/localAuth';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { useToast } from '@/components/ui/use-toast';
-import { Navigation } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Info } from 'lucide-react';
+import Link from 'next/link';
+import { Navigation } from 'lucide-react';
+
 
 export default function SignupPage() {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
-  const [fallbackNotice, setFallbackNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const router = useRouter();
-  const { toast } = useToast();
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
+    setError(null);
+
     if (password !== confirm) {
-      toast({
-        variant: "destructive",
-        title: 'Signup Failed',
-        description: 'Passwords do not match.',
-      });
+      setError('Passwords do not match');
       return;
     }
-    setBusy(true);
-    setFallbackNotice(null);
-    const result = await signUpWithEmail(name, email, password);
-    
-    if (result.error) {
+
+    try {
+      setBusy(true);
+      await signUpLocal(name, email, password);
       setBusy(false);
-      toast({
-        variant: "destructive",
-        title: 'Signup Failed',
-        description: result.error,
-      });
-      return;
+      // For demo: go to dashboard after signup
+      router.push('/dashboard');
+    } catch (err: any) {
+      setBusy(false);
+      setError(err?.message ?? 'Failed to sign up');
     }
-    
-    if ((result as any).fallback === 'local') {
-      setFallbackNotice('Using local fallback signup because emulator/network is unavailable.');
-    } else if (result.user) {
-      // Only create firestore doc if it was a real signup
-      await createUserDoc(result.user);
-    }
-    
-    setBusy(false);
-    toast({
-        title: 'Account Created!',
-        description: 'Redirecting to your dashboard...',
-    });
-    router.push('/dashboard');
   }
 
   return (
-    <div className="flex h-screen w-screen items-center justify-center bg-gray-50 dark:bg-gray-900">
+    <div className="flex h-screen w-screen items-center justify-center bg-gray-50 dark:bg-gray-900 p-4">
       <Card className="w-full max-w-sm">
         <form onSubmit={onSubmit}>
           <CardHeader className="text-center">
@@ -79,11 +58,10 @@ export default function SignupPage() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-             {fallbackNotice && (
-              <Alert variant="default" className="bg-blue-50 border-blue-200 text-blue-800 dark:bg-blue-900/30 dark:border-blue-700 dark:text-blue-300">
-                <Info className="h-4 w-4" />
-                <AlertTitle>Developer Notice</AlertTitle>
-                <AlertDescription>{fallbackNotice}</AlertDescription>
+             {error && (
+              <Alert variant="destructive">
+                <AlertTitle>Signup Failed</AlertTitle>
+                <AlertDescription>{error}</AlertDescription>
               </Alert>
             )}
             <div className="space-y-2">
@@ -131,7 +109,7 @@ export default function SignupPage() {
           </CardContent>
           <CardFooter className="flex flex-col gap-4">
             <Button type="submit" className="w-full" disabled={busy}>
-               {busy ? 'Signing up…' : 'Sign Up'}
+               {busy ? 'Creating account…' : 'Sign Up'}
             </Button>
             <p className="text-xs text-muted-foreground">
               Already have an account?{' '}
@@ -141,6 +119,10 @@ export default function SignupPage() {
               >
                 Login
               </Link>
+            </p>
+             <p className="mt-2 text-center text-[11px] text-slate-400 px-4">
+              Note: In this dev environment we are using local browser storage, not real Firebase
+              Auth. The final app will use Firebase.
             </p>
           </CardFooter>
         </form>
