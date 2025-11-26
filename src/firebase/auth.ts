@@ -1,4 +1,3 @@
-
 // src/firebase/auth.ts
 import { auth } from './client';
 import {
