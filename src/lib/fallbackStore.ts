@@ -1,4 +1,3 @@
-
 // src/lib/fallbackStore.ts
 export function readTripsLocal() {
   try {

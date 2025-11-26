@@ -17,7 +17,7 @@ import { useEffect, useState } from 'react';
 import { getCurrentUser, type LocalUser } from '@/lib/localAuth';
 import type { Trip } from '@/lib/tripStore';
 import JoinTripPreview from '@/components/trip/JoinTripPreview';
-import { getTrip, joinTrip as joinTripAdapter, getRecentTrips } from '@/lib/storeAdapter';
+import { getTrip, joinTrip, getRecentTrips } from '@/lib/storeAdapter';
 
 function useLocalUser() {
   const [user, setUser] = useState<LocalUser | null>(null);
@@ -96,7 +96,7 @@ export default function DashboardPage() {
                 return res.data;
               }}
               joinTrip={async (tripId, user) => {
-                await joinTripAdapter(tripId, user);
+                await joinTrip(tripId, user);
               }}
               onJoinSuccess={handleJoinSuccess}
             />

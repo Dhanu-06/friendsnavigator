@@ -1,6 +1,6 @@
 
 // src/lib/tripStore.ts
-import { getTripLocal, saveTripLocal, getRecentTripsLocal } from "./fallbackStore";
+import { getTripLocal, getRecentTripsLocal } from "./fallbackStore";
 import { getTrip as getTripAdapter, saveTrip as saveTripAdapter, joinTrip as joinTripAdapter, getRecentTrips as getRecentTripsAdapter } from "./storeAdapter";
 
 
@@ -24,7 +24,7 @@ export type Trip = {
  * Saves a trip to the local fallback store synchronously.
  */
 export function saveTrip(trip: Trip) {
-  saveTripLocal(trip.id, trip);
+  saveTripAdapter(trip.id, trip);
 }
 
 /**
@@ -38,8 +38,8 @@ export function getTripById(id: string): Trip | null {
 /**
  * @deprecated Use getRecentTrips from storeAdapter.ts for robust fallback logic.
  */
-export function getRecentTrips(): Trip[] {
-    return getRecentTripsLocal();
+export function getRecentTrips(): Promise<Trip[]> {
+    return getRecentTripsAdapter();
 }
 
 /**

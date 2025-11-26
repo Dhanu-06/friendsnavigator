@@ -1,3 +1,4 @@
+
 // src/hooks/useTripRealtime.tsx
 'use client';
 import { useEffect, useRef, useState, useCallback } from 'react';
@@ -13,7 +14,9 @@ import {
   serverTimestamp,
   type Firestore,
 } from 'firebase/firestore';
-import { getTripById, saveTrip as saveTripLocal, type Trip } from '@/lib/tripStore';
+import { getTripById, type Trip } from '@/lib/tripStore';
+import { saveTripLocal } from '@/lib/fallbackStore';
+
 
 export type Participant = {
   id: string;
@@ -53,7 +56,6 @@ export default function useTripRealtime(tripId?: string) {
         return;
     }
     
-    // getFirebaseInstances is now the single source of truth
     const { firestore } = getFirebaseInstances();
     if (!firestore) {
         console.error("useTripRealtime: Firestore instance is not available. Check Firebase client initialization.");
@@ -118,7 +120,7 @@ export default function useTripRealtime(tripId?: string) {
     const trip = getTripById(tripId);
     if (trip) {
       const updatedTrip = update(trip);
-      saveTripLocal(updatedTrip);
+      saveTripLocal(updatedTrip.id, updatedTrip);
       setParticipants([...(updatedTrip.participants ?? [])]);
       setMessages([...(updatedTrip.messages ?? [])]);
       setExpenses([...(updatedTrip.expenses ?? [])]);
