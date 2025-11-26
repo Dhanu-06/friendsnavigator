@@ -1,8 +1,14 @@
-
 // src/lib/firebaseClient.ts
 import { initializeApp, getApps, getApp, type FirebaseApp } from "firebase/app";
 import { getAuth, connectAuthEmulator, type Auth } from "firebase/auth";
 import { getFirestore, connectFirestoreEmulator, initializeFirestore, type Firestore } from "firebase/firestore";
+
+/**
+ * Robust Firebase client initializer.
+ * - Initializes app once
+ * - Connects to emulators when NEXT_PUBLIC_USE_FIREBASE_EMULATOR=true
+ * - Attempts to enable experimentalForceLongPolling to avoid websocket/stream issues
+ */
 
 const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY || "dummy-key",
@@ -58,7 +64,7 @@ const initializeFirebase = (() => {
                 console.log("[FirebaseClient] Connecting Auth emulator:", `http://${AUTH_HOST}:${AUTH_PORT}`);
                 connectAuthEmulator(auth, `http://${AUTH_HOST}:${AUTH_PORT}`, { disableWarnings: true });
             } catch (e) {
-                console.error("[FirebaseClient] Auth emulator connect failed:", e);
+                console.warn("[FirebaseClient] Auth emulator connect failed:", e);
             }
         }
 
@@ -69,7 +75,7 @@ const initializeFirebase = (() => {
                 connectFirestoreEmulator(firestore, FIRESTORE_HOST, FIRESTORE_PORT);
                  console.log("[FirebaseClient] Set experimentalForceLongPolling = true");
             } catch (e) {
-                console.error("[FirebaseClient] Firestore emulator connect failed:", e);
+                console.warn("[FirebaseClient] Firestore emulator connect failed:", e);
             }
         }
     }
