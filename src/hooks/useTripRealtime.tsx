@@ -15,7 +15,7 @@ import {
   getDoc,
   getDocs,
 } from 'firebase/firestore';
-import { getTripById, saveTrip as saveTripLocal, Trip } from '@/lib/tripStore';
+import { getTripById, saveTrip as saveTripLocal, type Trip } from '@/lib/tripStore';
 import { getCurrentUser } from '@/lib/localAuth';
 
 export type Participant = {
