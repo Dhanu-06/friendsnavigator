@@ -116,7 +116,7 @@ export default function DashboardPage() {
                     <div>
                       <h4 className="font-semibold">{trip.name}</h4>
                       <p className="text-sm text-muted-foreground">
-                        {trip.destination.name}
+                        {trip.destination?.name}
                       </p>
                     </div>
                     <Button variant="secondary" size="sm" asChild>
