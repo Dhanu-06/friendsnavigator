@@ -1,4 +1,4 @@
-// src/components/TripRoomClient.tsx
+// src/components/trip/TripRoomClient.tsx
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
@@ -39,6 +39,7 @@ export default function TripRoomClient({ tripId, currentUser, initialTrip = null
   // Local state for ETAs reported by server (matrix) or fallback
   const [etas, setEtas] = useState<Record<string, { etaSeconds: number | null; distanceMeters: number | null }>>({});
 
+  // Reverse geocoded friendly names
   const [pickupName, setPickupName] = useState<string | null>(null);
   const [destinationName, setDestinationName] = useState<string | null>(null);
 
@@ -131,7 +132,6 @@ export default function TripRoomClient({ tripId, currentUser, initialTrip = null
             return copy;
           });
         } else if (json?.raw && Array.isArray(json.raw?.results)) {
-          // some fallback shapes
           setEtas((prev) => {
             const copy = { ...prev };
             for (const r of json.raw.results) {
@@ -140,7 +140,6 @@ export default function TripRoomClient({ tripId, currentUser, initialTrip = null
             return copy;
           });
         } else {
-          // unexpected response — log for debugging
           console.warn("matrix-eta returned unexpected shape", json);
         }
       } catch (e) {
@@ -157,9 +156,9 @@ export default function TripRoomClient({ tripId, currentUser, initialTrip = null
   }, [participants, tripMeta?.destination?.lat, tripMeta?.destination?.lng]);
 
   // ---------------------
-  // Booking helpers
+  // Reverse geocode helpers
   // ---------------------
-  function getPickup() {
+  function getPickupCoords() {
     const user = participants.find((p) => p.id === (currentUser?.id ?? "anon"));
     if (user?.coords) return user.coords;
     if (participants.length > 0 && participants[0].coords) return participants[0].coords;
@@ -176,7 +175,7 @@ export default function TripRoomClient({ tripId, currentUser, initialTrip = null
   }
 
   async function loadNames() {
-    const p = getPickup();
+    const p = getPickupCoords();
     const d = getDestinationCoords();
     if (p && typeof p.lat === "number" && typeof p.lng === "number") {
       const name = await reverseGeocodeClient(p.lat, p.lng);
@@ -196,9 +195,11 @@ export default function TripRoomClient({ tripId, currentUser, initialTrip = null
     loadNames().catch((e) => console.warn("loadNames failed", e));
   }, [participants.map(p => p.coords ? `${p.coords.lat},${p.coords.lng}` : "").join("|"), tripMeta?.destination?.lat, tripMeta?.destination?.lng]);
 
-
+  // ---------------------
+  // Booking helpers
+  // ---------------------
   function onBookUber() {
-    const pickup = getPickup();
+    const pickup = getPickupCoords();
     const dest = getDestinationCoords();
     if (!pickup || !dest) {
       alert("Pickup or destination not known yet.");
@@ -209,6 +210,7 @@ export default function TripRoomClient({ tripId, currentUser, initialTrip = null
 
     const pickupLabel = encodeURIComponent(pickupName || `${pickupLat},${pickupLng}`);
     const dropLabel = encodeURIComponent(destinationName || `${dropLat},${dropLng}`);
+    
     const mUber = `https://m.uber.com/ul/?action=setPickup&pickup[latitude]=${pickupLat}&pickup[longitude]=${pickupLng}&dropoff[latitude]=${dropLat}&dropoff[longitude]=${dropLng}&pickup[nickname]=${pickupLabel}&dropoff[nickname]=${dropLabel}`;
     const uberApp = `uber://?action=setPickup&pickup[latitude]=${pickupLat}&pickup[longitude]=${pickupLng}&dropoff[latitude]=${dropLat}&dropoff[longitude]=${dropLng}`;
     const play = "https://play.google.com/store/apps/details?id=com.ubercab";
@@ -217,7 +219,7 @@ export default function TripRoomClient({ tripId, currentUser, initialTrip = null
   }
 
   function onBookOla() {
-    const pickup = getPickup();
+    const pickup = getPickupCoords();
     const dest = getDestinationCoords();
     if (!pickup || !dest) {
       alert("Pickup or destination not known yet.");
@@ -229,6 +231,7 @@ export default function TripRoomClient({ tripId, currentUser, initialTrip = null
     const pickupLabel = encodeURIComponent(pickupName || "Pickup");
     const dropLabel = encodeURIComponent(destinationName || "Drop");
     const olaWeb = `https://book.olacabs.com/?lat=${pickupLat}&lng=${pickupLng}&drop_lat=${dropLat}&drop_lng=${dropLng}&pickup_name=${pickupLabel}&drop_name=${dropLabel}`;
+
     openAppOrFallback({ webUrl: olaWeb, playStoreUrl: "https://play.google.com/store/apps/details?id=com.olacabs.customer" });
   }
 
@@ -298,7 +301,7 @@ export default function TripRoomClient({ tripId, currentUser, initialTrip = null
         <div style={{ marginTop: 8, marginBottom: 6 }}>
           <div style={{ fontWeight: 700 }}>Quick ride</div>
           <div style={{ marginTop: 6, marginBottom: 10, fontSize: 13, color: "#444" }}>
-            Pickup: {pickupName ?? (getPickup() ? `${getPickup()!.lat.toFixed(4)}, ${getPickup()!.lng.toFixed(4)}` : "unknown")}
+            Pickup: {pickupName ?? (getPickupCoords() ? `${getPickupCoords()!.lat.toFixed(4)}, ${getPickupCoords()!.lng.toFixed(4)}` : "unknown")}
             <br />
             Drop: {destinationName ?? (getDestinationCoords() ? `${getDestinationCoords()!.lat.toFixed(4)}, ${getDestinationCoords()!.lng.toFixed(4)}` : "unknown")}
           </div>
@@ -320,7 +323,7 @@ export default function TripRoomClient({ tripId, currentUser, initialTrip = null
 
           <button
             onClick={() => {
-              const pickup = getPickup();
+              const pickup = getPickupCoords();
               const dest = getDestinationCoords();
               if (!pickup || !dest) {
                 alert("Pickup or destination not known yet.");
