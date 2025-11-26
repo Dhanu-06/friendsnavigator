@@ -12,10 +12,13 @@ import { Navigation } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
 import { GoogleAuthProvider, signInWithPopup } from 'firebase/auth';
 import { auth } from '@/firebase/client';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { AlertCircle } from 'lucide-react';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const router = useRouter();
   const { toast } = useToast();
@@ -23,14 +26,11 @@ export default function LoginPage() {
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true);
-    const { user, error } = await signInWithEmail(email, password);
+    setError(null);
+    const { user, error: signInError } = await signInWithEmail(email, password);
     setBusy(false);
-    if (error) {
-      toast({
-        variant: "destructive",
-        title: 'Login Failed',
-        description: error,
-      });
+    if (signInError) {
+      setError(signInError);
       return;
     }
     toast({
@@ -42,8 +42,10 @@ export default function LoginPage() {
 
   const handleGoogleSignIn = () => {
     const provider = new GoogleAuthProvider();
+    setBusy(true);
     signInWithPopup(auth, provider)
       .then((result) => {
+        setBusy(false);
         const user = result.user;
         toast({
           title: 'Login Successful',
@@ -51,11 +53,8 @@ export default function LoginPage() {
         });
         router.push('/dashboard');
       }).catch((error) => {
-        toast({
-          variant: "destructive",
-          title: 'Google Login Failed',
-          description: error.message,
-        });
+        setBusy(false);
+        setError(error.message);
       });
   };
 
@@ -75,6 +74,13 @@ export default function LoginPage() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
+            {error && (
+              <Alert variant="destructive">
+                <AlertCircle className="h-4 w-4" />
+                <AlertTitle>Login Failed</AlertTitle>
+                <AlertDescription>{error}</AlertDescription>
+              </Alert>
+            )}
             <div className="space-y-2">
               <Label htmlFor="email">Email</Label>
               <Input
@@ -101,7 +107,7 @@ export default function LoginPage() {
             <Button type="submit" className="w-full" disabled={busy}>
               {busy ? 'Signing in…' : 'Login'}
             </Button>
-            <Button variant="outline" className="w-full" onClick={handleGoogleSignIn} type="button">
+            <Button variant="outline" className="w-full" onClick={handleGoogleSignIn} type="button" disabled={busy}>
               Sign in with Google
             </Button>
             <p className="text-xs text-muted-foreground">
