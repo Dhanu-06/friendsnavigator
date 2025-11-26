@@ -29,6 +29,8 @@ export type Participant = {
   status?: string;
 };
 
+const useEmulator = process.env.NEXT_PUBLIC_USE_FIREBASE_EMULATOR === 'true';
+
 export default function useTripRealtime(tripId?: string) {
   const [participants, setParticipants] = useState<Participant[]>([]);
   const [messages, setMessages] = useState<any[]>([]);
@@ -40,7 +42,7 @@ export default function useTripRealtime(tripId?: string) {
   useEffect(() => {
     if (!tripId) return;
 
-    if (process.env.NEXT_PUBLIC_USE_FIREBASE_EMULATOR !== 'true') {
+    if (!useEmulator) {
         console.warn('Realtime hook: Firestore emulator not enabled, using local fallback for all data.');
         const t = getTripById(tripId);
         if (t) {
@@ -106,7 +108,7 @@ export default function useTripRealtime(tripId?: string) {
 
   // join or update a participant
   const joinOrUpdateParticipant = useCallback(async (tripIdStr: string, p: Participant) => {
-    if (process.env.NEXT_PUBLIC_USE_FIREBASE_EMULATOR !== 'true') {
+    if (!useEmulator) {
         updateLocalTrip(tripIdStr, (trip) => {
           const newParticipants = [...(trip.participants ?? [])];
           const idx = newParticipants.findIndex(x => x.id === p.id);
@@ -138,7 +140,7 @@ export default function useTripRealtime(tripId?: string) {
   }, []);
 
   const sendMessage = useCallback(async (tripIdStr: string, payload:{senderId:string, text:string, userName: string, avatarUrl: string}) => {
-     if (process.env.NEXT_PUBLIC_USE_FIREBASE_EMULATOR !== 'true') {
+     if (!useEmulator) {
         updateLocalTrip(tripIdStr, (trip) => {
           trip.messages = [...(trip.messages ?? []), { id: String(Date.now()), ...payload, createdAt: new Date().toISOString() }];
           return trip;
@@ -161,7 +163,7 @@ export default function useTripRealtime(tripId?: string) {
   }, []);
 
   const addExpense = useCallback(async (tripIdStr: string, payload:{paidBy:string,amount:number,label:string}) => {
-     if (process.env.NEXT_PUBLIC_USE_FIREBASE_EMULATOR !== 'true') {
+     if (!useEmulator) {
        updateLocalTrip(tripIdStr, (trip) => {
           trip.expenses = [...(trip.expenses ?? []), { id: String(Date.now()), ...payload }];
           return trip;
