@@ -1,9 +1,10 @@
 'use client';
 
-import { db } from '@/firebase/client';
-import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { initializeFirebase } from '@/firebase';
+import { doc, setDoc, serverTimestamp, type Firestore } from 'firebase/firestore';
 
 const useEmulator = process.env.NEXT_PUBLIC_USE_FIREBASE_EMULATOR === 'true';
+const { firestore: db } = initializeFirebase();
 
 type Coords = {
     lat: number;
@@ -44,8 +45,13 @@ export async function publishParticipantLocation(tripId: string, user: User, coo
      return { source: "local" };
   }
 
+  if (!db) {
+      console.error("publishParticipantLocation: Firestore instance is not available. Cannot publish location.");
+      throw new Error("Firestore not initialized.");
+  }
+
   try {
-    const ref = doc(db, "trips", tripId, "participants", user.id);
+    const ref = doc(db as Firestore, "trips", tripId, "participants", user.id);
     await setDoc(ref, payload, { merge: true });
     return { source: "firestore" };
   } catch (err) {

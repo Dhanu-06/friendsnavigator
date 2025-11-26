@@ -1,7 +1,7 @@
 // src/hooks/useTripRealtime.tsx
 'use client';
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { db } from '@/firebase/client';
+import { initializeFirebase } from '@/firebase';
 import {
   collection,
   doc,
@@ -11,6 +11,7 @@ import {
   query,
   orderBy,
   serverTimestamp,
+  type Firestore,
 } from 'firebase/firestore';
 import { getTripById, saveTrip as saveTripLocal, type Trip } from '@/lib/tripStore';
 
@@ -27,6 +28,10 @@ export type Participant = {
 };
 
 const useEmulator = process.env.NEXT_PUBLIC_USE_FIREBASE_EMULATOR === 'true';
+// Get the firestore instance from the single source of truth.
+// This is safe because initializeFirebase is idempotent.
+const { firestore: db } = initializeFirebase();
+
 
 export default function useTripRealtime(tripId?: string) {
   const [participants, setParticipants] = useState<Participant[]>([]);
@@ -49,6 +54,12 @@ export default function useTripRealtime(tripId?: string) {
               setExpenses(t.expenses ?? []);
           }
         }
+        return;
+    }
+
+    // This check is important to prevent errors when db is null (e.g. in a non-browser env)
+    if (!db) {
+        console.error("useTripRealtime: Firestore instance is not available.");
         return;
     }
 
@@ -129,7 +140,7 @@ export default function useTripRealtime(tripId?: string) {
         return { ok: true, source: 'local' };
     }
     try {
-      await setDoc(doc(db, 'trips', tripIdStr, 'participants', p.id), {
+      await setDoc(doc(db as Firestore, 'trips', tripIdStr, 'participants', p.id), {
         ...p,
         updatedAt: serverTimestamp(),
       }, { merge: true });
@@ -157,7 +168,7 @@ export default function useTripRealtime(tripId?: string) {
         return { ok: true, source: 'local' };
     }
     try {
-      await addDoc(collection(db, 'trips', tripIdStr, 'messages'), {
+      await addDoc(collection(db as Firestore, 'trips', tripIdStr, 'messages'), {
         ...payload, createdAt: serverTimestamp()
       });
       return { ok: true, source: 'firestore' };
@@ -177,10 +188,11 @@ export default function useTripRealtime(tripId?: string) {
           trip.expenses = [...(trip.expenses ?? []), { id: String(Date.now()), ...payload }];
           return trip;
         });
+
        return { ok: true, source: 'local' };
     }
     try {
-      await addDoc(collection(db, 'trips', tripIdStr, 'expenses'), { ...payload, createdAt: serverTimestamp() });
+      await addDoc(collection(db as Firestore, 'trips', tripIdStr, 'expenses'), { ...payload, createdAt: serverTimestamp() });
       return { ok:true, source: 'firestore' };
     } catch (err) {
       console.warn('addExpense failed, falling back to local', err);
