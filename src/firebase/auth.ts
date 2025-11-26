@@ -7,6 +7,12 @@ import {
   updateProfile,
   type User
 } from 'firebase/auth';
+import { fakeSignIn, fakeSignOut, fakeSignUp, getFakeCurrentUser } from './fakeAuth';
+
+function isNetworkError(err: any) {
+  const code = err?.code ?? '';
+  return code.includes('network-request-failed') || code.includes('auth/network-request-failed') || code.includes('unavailable');
+}
 
 export async function signUpWithEmail(name: string, email: string, password: string) {
   try {
@@ -18,8 +24,14 @@ export async function signUpWithEmail(name: string, email: string, password: str
     return { user: cred.user, error: null };
   } catch (err: any) {
     console.error('signUp error', err);
-    if (err.code === 'auth/network-request-failed') {
-      return { user: null, error: 'Network error. Please check your connection or ensure the Firebase emulator is running.' };
+    if (isNetworkError(err)) {
+       console.warn('Falling back to fake local signup due to network error.');
+       try {
+        const { user } = await fakeSignUp(name, email, password);
+        return { user, error: null, fallback: 'local' };
+      } catch (ferr: any) {
+        return { user: null, error: ferr?.message ?? String(ferr) };
+      }
     }
     return { user: null, error: (err?.message ?? String(err)) };
   }
@@ -31,8 +43,14 @@ export async function signInWithEmail(email: string, password: string) {
     return { user: cred.user, error: null };
   } catch (err: any) {
     console.error('signIn error', err);
-    if (err.code === 'auth/network-request-failed' || err.code === 'auth/network-request-failed') {
-      return { user: null, error: 'Network error: Could not connect to authentication service. If you are developing locally, please ensure the Firebase emulator is running (`npm run emulators`).' };
+     if (isNetworkError(err)) {
+      console.warn('Falling back to fake local auth due to network error.');
+      try {
+        const { user } = await fakeSignIn(email, password);
+        return { user, error: null, fallback: 'local' };
+      } catch (ferr: any) {
+        return { user: null, error: ferr?.message ?? String(ferr) };
+      }
     }
      if (err.code === 'auth/wrong-password' || err.code === 'wrong-password') {
       return { user: null, error: 'Incorrect password. Please try again.' };
@@ -48,8 +66,18 @@ export async function signOut() {
   try {
     await firebaseSignOut(auth);
     return { ok: true };
-  } catch (err: any) {
+  } catch (err: any)
+   {
+    if (isNetworkError(err)) {
+        console.warn('signOut network error, using fakeSignOut', err);
+        await fakeSignOut();
+        return { ok: true, fallback: 'local' };
+    }
     console.error('signOut error', err);
     return { ok: false, error: (err?.message ?? String(err)) };
   }
+}
+
+export function getCurrentLocalUser() {
+  return getFakeCurrentUser();
 }

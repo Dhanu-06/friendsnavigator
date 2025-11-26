@@ -11,12 +11,15 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/components/ui/use-toast';
 import { Navigation } from 'lucide-react';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Info } from 'lucide-react';
 
 export default function SignupPage() {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
+  const [fallbackNotice, setFallbackNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const router = useRouter();
   const { toast } = useToast();
@@ -32,20 +35,24 @@ export default function SignupPage() {
       return;
     }
     setBusy(true);
-    const { user, error } = await signUpWithEmail(name, email, password);
+    setFallbackNotice(null);
+    const result = await signUpWithEmail(name, email, password);
     
-    if (error) {
+    if (result.error) {
       setBusy(false);
       toast({
         variant: "destructive",
         title: 'Signup Failed',
-        description: error,
+        description: result.error,
       });
       return;
     }
-
-    if (user) {
-        await createUserDoc(user);
+    
+    if ((result as any).fallback === 'local') {
+      setFallbackNotice('Using local fallback signup because emulator/network is unavailable.');
+    } else if (result.user) {
+      // Only create firestore doc if it was a real signup
+      await createUserDoc(result.user);
     }
     
     setBusy(false);
@@ -72,6 +79,13 @@ export default function SignupPage() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
+             {fallbackNotice && (
+              <Alert variant="default" className="bg-blue-50 border-blue-200 text-blue-800 dark:bg-blue-900/30 dark:border-blue-700 dark:text-blue-300">
+                <Info className="h-4 w-4" />
+                <AlertTitle>Developer Notice</AlertTitle>
+                <AlertDescription>{fallbackNotice}</AlertDescription>
+              </Alert>
+            )}
             <div className="space-y-2">
               <Label htmlFor="name">Name</Label>
               <Input 

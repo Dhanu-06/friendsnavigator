@@ -13,12 +13,13 @@ import { useToast } from '@/components/ui/use-toast';
 import { GoogleAuthProvider, signInWithPopup } from 'firebase/auth';
 import { auth } from '@/firebase/client';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { AlertCircle } from 'lucide-react';
+import { AlertCircle, Info } from 'lucide-react';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [fallbackNotice, setFallbackNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const router = useRouter();
   const { toast } = useToast();
@@ -27,12 +28,20 @@ export default function LoginPage() {
     e.preventDefault();
     setBusy(true);
     setError(null);
-    const { user, error: signInError } = await signInWithEmail(email, password);
+    setFallbackNotice(null);
+    
+    const result = await signInWithEmail(email, password);
     setBusy(false);
-    if (signInError) {
-      setError(signInError);
+
+    if (result.error) {
+      setError(result.error);
       return;
     }
+    
+    if ((result as any).fallback === 'local') {
+        setFallbackNotice('Using local fallback auth because emulator/network is unavailable.');
+    }
+
     toast({
       title: 'Login Successful!',
       description: 'Redirecting to your dashboard...',
@@ -79,6 +88,13 @@ export default function LoginPage() {
                 <AlertCircle className="h-4 w-4" />
                 <AlertTitle>Login Failed</AlertTitle>
                 <AlertDescription>{error}</AlertDescription>
+              </Alert>
+            )}
+             {fallbackNotice && (
+              <Alert variant="default" className="bg-blue-50 border-blue-200 text-blue-800 dark:bg-blue-900/30 dark:border-blue-700 dark:text-blue-300">
+                <Info className="h-4 w-4" />
+                <AlertTitle>Developer Notice</AlertTitle>
+                <AlertDescription>{fallbackNotice}</AlertDescription>
               </Alert>
             )}
             <div className="space-y-2">
