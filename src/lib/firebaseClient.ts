@@ -16,21 +16,24 @@ let app: FirebaseApp;
 let auth: Auth;
 let firestore: Firestore;
 
-
+// This function is memoized so it only runs once.
 function initializeFirebase() {
-    if (!getApps().length) {
-        app = initializeApp(firebaseConfig);
-    } else {
+    if (getApps().length > 0) {
         app = getApp();
+    } else {
+        app = initializeApp(firebaseConfig);
     }
 
     auth = getAuth(app);
     
+    // Firestore can be initialized with settings to force long-polling.
     try {
-        firestore = getFirestore(app);
-    } catch (e) {
         // @ts-ignore
         firestore = initializeFirestore(app, { experimentalForceLongPolling: true });
+    } catch (e) {
+        // If initializeFirestore is not available (older SDK versions) or fails, fallback to getFirestore.
+        firestore = getFirestore(app);
+        console.warn("initializeFirestore with settings failed, falling back to getFirestore().", e);
     }
 
     const useEmulator = process.env.NEXT_PUBLIC_USE_FIREBASE_EMULATOR === "true";
@@ -41,37 +44,34 @@ function initializeFirebase() {
         const AUTH_HOST = process.env.NEXT_PUBLIC_FIREBASE_AUTH_EMULATOR_HOST || "localhost";
         const AUTH_PORT = Number(process.env.NEXT_PUBLIC_FIREBASE_AUTH_EMULATOR_PORT || 9099);
 
-        try {
-            console.log("Connecting Auth emulator:", `http://${AUTH_HOST}:${AUTH_PORT}`);
-            connectAuthEmulator(auth, `http://${AUTH_HOST}:${AUTH_PORT}`, { disableWarnings: true });
-        } catch (e) {
-            console.error("Auth emulator connect failed:", e);
+        // Check if emulators are already connected to avoid re-connecting on hot reloads
+        // @ts-ignore
+        if (!auth.emulatorConfig) {
+            try {
+                console.log("[FirebaseClient] Connecting Auth emulator:", `http://${AUTH_HOST}:${AUTH_PORT}`);
+                connectAuthEmulator(auth, `http://${AUTH_HOST}:${AUTH_PORT}`, { disableWarnings: true });
+            } catch (e) {
+                console.error("[FirebaseClient] Auth emulator connect failed:", e);
+            }
         }
 
-        try {
-            console.log("Connecting Firestore emulator:", FIRESTORE_HOST, FIRESTORE_PORT);
-            connectFirestoreEmulator(firestore, FIRESTORE_HOST, FIRESTORE_PORT);
-             try {
-                // @ts-ignore
-                firestore.settings?.({ experimentalForceLongPolling: true });
-            } catch (ee) {
-                console.warn("Could not set firestore settings for long polling:", ee);
+        // @ts-ignore
+        if (!firestore.emulator) {
+            try {
+                console.log("[FirebaseClient] Connecting Firestore emulator:", FIRESTORE_HOST, FIRESTORE_PORT);
+                connectFirestoreEmulator(firestore, FIRESTORE_HOST, FIRESTORE_PORT);
+                 console.log("[FirebaseClient] Set experimentalForceLongPolling = true");
+            } catch (e) {
+                console.error("[FirebaseClient] Firestore emulator connect failed:", e);
             }
-        } catch (e) {
-            console.error("Firestore emulator connect failed:", e);
         }
-    } else {
-         try {
-            // @ts-ignore
-            firestore.settings?.({ experimentalForceLongPolling: true });
-        } catch (e) {}
     }
 
     return { app, auth, firestore };
 }
 
-// Initialize and export singleton instances
+// Singleton instances for the whole app.
 const instances = initializeFirebase();
-const getFirebaseInstances = () => instances;
 
-export { getFirebaseInstances };
+// Export a function that returns the memoized instances.
+export const getFirebaseInstances = () => instances;
