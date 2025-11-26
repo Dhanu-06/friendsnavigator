@@ -3,20 +3,20 @@ import { NextResponse } from "next/server";
 
 /**
  * POST /api/matrix-eta
- * Body: { origins: [{ id, lat, lon }], destination: { lat, lon } }
+ * Body: { origins: [{ id, lat, lng }], destination: { lat, lng } }
  *
  * Returns: { results: [{ id, etaSeconds, distanceMeters }, ...], raw?: any }
  *
  * NOTE: Put your server TomTom key in env as NEXT_TOMTOM_KEY (not public).
  */
 
-type Origin = { id: string; lat: number; lon: number };
-type Destination = { lat: number; lon: number };
+type Origin = { id: string; lat: number; lng: number };
+type Destination = { lat: number; lng: number };
 
 async function tryMatrixAPI(origins: Origin[], destination: Destination, key: string) {
   // Build origins string: lat,lon|lat,lon|...
-  const originsParam = origins.map((o) => `${o.lat},${o.lon}`).join("|");
-  const destParam = `${destination.lat},${destination.lon}`;
+  const originsParam = origins.map((o) => `${o.lat},${o.lng}`).join("|");
+  const destParam = `${destination.lat},${destination.lng}`;
 
   // TomTom Matrix endpoint — best-effort parameters. If your TomTom plan has different param names,
   // adjust metrics/model as required by TomTom docs.
@@ -40,8 +40,8 @@ async function fallbackRouting(origins: Origin[], destination: Destination, key:
   // This is slower but keeps client working.
   const results: { id: string; etaSeconds: number | null; distanceMeters: number | null }[] = [];
   for (const o of origins) {
-    const start = `${o.lat},${o.lon}`;
-    const end = `${destination.lat},${destination.lon}`;
+    const start = `${o.lat},${o.lng}`;
+    const end = `${destination.lat},${destination.lng}`;
     const url = `https://api.tomtom.com/routing/1/calculateRoute/${start}:${end}/json?key=${encodeURIComponent(
       key
     )}&routeType=fastest&traffic=true&computeTravelTimeFor=all`;

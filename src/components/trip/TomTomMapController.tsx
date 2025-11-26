@@ -3,7 +3,7 @@
 // components/trip/TomTomMapController.tsx
 import React, { useEffect, useRef, useState } from "react";
 
-type LatLng = { lat: number; lon: number };
+type LatLng = { lat: number; lng: number };
 
 type Participant = { 
   id: string; 
@@ -69,7 +69,7 @@ export default function TomTomMapController({
       const map = tt.default.map({
         key: TOMTOM_KEY,
         container: mapRef.current,
-        center: destination?.coords ? [destination.coords.lon, destination.coords.lat] : [77.5946, 12.9716],
+        center: destination?.coords ? [destination.coords.lng, destination.coords.lat] : [77.5946, 12.9716],
         zoom: 12,
         language: "en-US",
       });
@@ -84,7 +84,7 @@ export default function TomTomMapController({
         searchBox.on("tomtom.searchbox.result", (ev: any) => {
           if (!onSearchResult || !ev?.result) return;
           const { position, address, poi } = ev.result;
-          const coords = position ? { lat: position.lat, lon: position.lon } : undefined;
+          const coords = position ? { lat: position.lat, lng: position.lng } : undefined;
           const label = address?.freeformAddress || poi?.name;
           onSearchResult({ label, coords });
         });
@@ -146,7 +146,7 @@ export default function TomTomMapController({
     const { color = "#2b7cff", avatarUrl } = options;
     const existing = markersRef.current[key];
     if (existing?.marker) {
-      animateMarkerTo(key, existing.marker, [coords.lon, coords.lat]);
+      animateMarkerTo(key, existing.marker, [coords.lng, coords.lat]);
       return existing.marker;
     }
 
@@ -155,7 +155,7 @@ export default function TomTomMapController({
     if (avatarUrl) el.innerHTML = `<img src="${avatarUrl}" alt="${key}" style="width:100%;height:100%;object-fit:cover;" />`;
     else el.textContent = key?.[0]?.toUpperCase() || "?";
 
-    const marker = new sdkRef.current.default.Marker({ element: el }).setLngLat([coords.lon, coords.lat]).addTo(ttMapRef.current);
+    const marker = new sdkRef.current.default.Marker({ element: el }).setLngLat([coords.lng, coords.lat]).addTo(ttMapRef.current);
     if (popupHtml) marker.setPopup(new sdkRef.current.default.Popup({ offset: 20 }).setHTML(popupHtml));
     markersRef.current[key] = { marker };
     return marker;
@@ -188,9 +188,9 @@ export default function TomTomMapController({
     if (fitBounds) {
       const bounds = new sdkRef.current.default.LngLatBounds();
       let added = false;
-      participants.forEach(p => { if (p.coords) { bounds.extend([p.coords.lon, p.coords.lat]); added = true; } });
-      if (origin?.coords) { bounds.extend([origin.coords.lon, origin.coords.lat]); added = true; }
-      if (destination?.coords) { bounds.extend([destination.coords.lon, destination.coords.lat]); added = true; }
+      participants.forEach(p => { if (p.coords) { bounds.extend([p.coords.lng, p.coords.lat]); added = true; } });
+      if (origin?.coords) { bounds.extend([origin.coords.lng, origin.coords.lat]); added = true; }
+      if (destination?.coords) { bounds.extend([destination.coords.lng, destination.coords.lat]); added = true; }
       if (added) try { ttMapRef.current.fitBounds(bounds, { padding: 80, maxZoom: 15, duration: 500 }); } catch (e) { }
     }
   }, [participants, mapReady, fitBounds, origin, destination]);

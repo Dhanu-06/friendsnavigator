@@ -15,7 +15,7 @@ export type Participant = {
   mode?: string;
   etaMinutes?: number;
   status?: string;
-  coords?: { lat: number; lon: number };
+  coords?: { lat: number; lng: number };
   updatedAt?: number | null;
 };
 
@@ -91,8 +91,24 @@ export default function useTripRealtime(tripId: string) {
         
         const unsub = onSnapshot(q, (snapshot) => {
           const arr: any[] = [];
-          snapshot.forEach((doc) => arr.push({ id: doc.id, ...doc.data() }));
+          snapshot.forEach((doc) => {
+            const data = doc.data();
+            // Convert Firestore Timestamps to JS Dates for serialization
+            const serializableData: { [key: string]: any } = {};
+            for (const key in data) {
+                if (data[key]?.toDate) {
+                    serializableData[key] = data[key].toDate().toISOString();
+                } else {
+                    serializableData[key] = data[key];
+                }
+            }
+            arr.push({ id: doc.id, ...serializableData });
+          });
           setter(arr);
+          // Also update local storage to keep it in sync
+          const trip = getTripLocal(tripId) || {id: tripId, participants: [], messages:[], expenses:[]};
+          trip[colName] = arr;
+          saveTripLocal(tripId, trip);
           setStatus("online");
         }, (err) => {
           console.error(`useTripRealtime (${colName}) snapshot error. Falling back to local.`, err);

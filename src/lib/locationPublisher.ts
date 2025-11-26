@@ -12,7 +12,7 @@ import { getFirebaseInstances } from "@/lib/firebaseClient";
 
 type Coords = {
     lat: number;
-    lng: number; // Changed from lon to lng for consistency with other parts of the app
+    lng: number; 
     accuracy?: number | null;
     heading?: number | null;
     speed?: number | null;
@@ -31,11 +31,13 @@ export async function publishParticipantLocation(tripId: string, user: User, coo
     id: user.id,
     name: user.name || null,
     avatarUrl: user.avatarUrl || null,
-    lat: coords.lat,
-    lng: coords.lng,
-    accuracy: coords.accuracy ?? null,
-    heading: coords.heading ?? null,
-    speed: coords.speed ?? null,
+    coords: {
+      lat: coords.lat,
+      lng: coords.lng,
+      accuracy: coords.accuracy ?? null,
+      heading: coords.heading ?? null,
+      speed: coords.speed ?? null,
+    },
     lastUpdated: serverTimestamp ? serverTimestamp() : new Date(),
     lastUpdatedTimestamp: coords.timestamp ?? Date.now(),
   };
