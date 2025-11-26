@@ -1,3 +1,5 @@
+'use client';
+
 // components/trip/TomTomMapController.tsx
 import React, { useEffect, useRef, useState } from "react";
 import tt from "@tomtom-international/web-sdk-maps";
