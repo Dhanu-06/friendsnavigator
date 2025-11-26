@@ -1,54 +1,49 @@
 'use client';
 
-import Link from 'next/link';
+import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
+import { signInWithEmail } from '@/firebase/auth';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { useToast } from '@/components/ui/use-toast';
 import { Navigation } from 'lucide-react';
+import { useToast } from '@/components/ui/use-toast';
+import { GoogleAuthProvider, signInWithPopup } from 'firebase/auth';
 import { auth } from '@/firebase/client';
-import { signInWithEmailAndPassword, GoogleAuthProvider, signInWithPopup } from 'firebase/auth';
-import React from 'react';
 
 export default function LoginPage() {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [busy, setBusy] = useState(false);
   const router = useRouter();
   const { toast } = useToast();
-  const [email, setEmail] = React.useState('');
-  const [password, setPassword] = React.useState('');
 
-  const handleSubmit = (e: React.FormEvent) => {
+  async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
-    signInWithEmailAndPassword(auth, email, password)
-      .then((userCredential) => {
-        // Signed in 
-        const user = userCredential.user;
-        toast({
-          title: 'Login Successful',
-          description: 'Redirecting to your dashboard...',
-        });
-        router.push('/dashboard');
-      })
-      .catch((error) => {
-        const errorCode = error.code;
-        const errorMessage = error.message;
-        toast({
-          variant: "destructive",
-          title: 'Login Failed',
-          description: errorMessage,
-        });
+    setBusy(true);
+    const { user, error } = await signInWithEmail(email, password);
+    setBusy(false);
+    if (error) {
+      toast({
+        variant: "destructive",
+        title: 'Login Failed',
+        description: error,
       });
-  };
+      return;
+    }
+    toast({
+      title: 'Login Successful!',
+      description: 'Redirecting to your dashboard...',
+    });
+    router.push('/dashboard');
+  }
 
   const handleGoogleSignIn = () => {
     const provider = new GoogleAuthProvider();
     signInWithPopup(auth, provider)
       .then((result) => {
-        // This gives you a Google Access Token. You can use it to access the Google API.
-        const credential = GoogleAuthProvider.credentialFromResult(result);
-        const token = credential?.accessToken;
-        // The signed-in user info.
         const user = result.user;
         toast({
           title: 'Login Successful',
@@ -56,17 +51,10 @@ export default function LoginPage() {
         });
         router.push('/dashboard');
       }).catch((error) => {
-        // Handle Errors here.
-        const errorCode = error.code;
-        const errorMessage = error.message;
-        // The email of the user's account used.
-        const email = error.customData?.email;
-        // The AuthCredential type that was used.
-        const credential = GoogleAuthProvider.credentialFromError(error);
         toast({
           variant: "destructive",
           title: 'Google Login Failed',
-          description: errorMessage,
+          description: error.message,
         });
       });
   };
@@ -74,7 +62,7 @@ export default function LoginPage() {
   return (
     <div className="flex h-screen w-screen items-center justify-center bg-gray-50 dark:bg-gray-900">
       <Card className="w-full max-w-sm">
-        <form onSubmit={handleSubmit}>
+        <form onSubmit={onSubmit}>
           <CardHeader className="text-center">
             <div className="mb-4 flex justify-center">
                 <Link href="/" className="flex items-center space-x-2">
@@ -110,8 +98,8 @@ export default function LoginPage() {
             </div>
           </CardContent>
           <CardFooter className="flex flex-col gap-4">
-            <Button type="submit" className="w-full">
-              Login
+            <Button type="submit" className="w-full" disabled={busy}>
+              {busy ? 'Signing in…' : 'Login'}
             </Button>
             <Button variant="outline" className="w-full" onClick={handleGoogleSignIn} type="button">
               Sign in with Google

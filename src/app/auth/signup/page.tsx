@@ -1,63 +1,65 @@
 'use client';
 
-import Link from 'next/link';
+import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
+import { signUpWithEmail } from '@/firebase/auth';
+import { createUserDoc } from '@/firebase/firestore';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/components/ui/use-toast';
 import { Navigation } from 'lucide-react';
-import React from 'react';
-import { auth } from '@/firebase/client';
-import { createUserWithEmailAndPassword, updateProfile } from 'firebase/auth';
 
 export default function SignupPage() {
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [confirm, setConfirm] = useState('');
+  const [busy, setBusy] = useState(false);
   const router = useRouter();
   const { toast } = useToast();
-  const [name, setName] = React.useState('');
-  const [email, setEmail] = React.useState('');
-  const [password, setPassword] = React.useState('');
-  const [confirmPassword, setConfirmPassword] = React.useState('');
 
-  const handleSubmit = (e: React.FormEvent) => {
+  async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (password !== confirmPassword) {
+    if (password !== confirm) {
       toast({
         variant: "destructive",
-        title: 'Passwords do not match',
-        description: 'Please check your passwords and try again.',
+        title: 'Signup Failed',
+        description: 'Passwords do not match.',
+      });
+      return;
+    }
+    setBusy(true);
+    const { user, error } = await signUpWithEmail(name, email, password);
+    
+    if (error) {
+      setBusy(false);
+      toast({
+        variant: "destructive",
+        title: 'Signup Failed',
+        description: error,
       });
       return;
     }
 
-    createUserWithEmailAndPassword(auth, email, password)
-      .then((userCredential) => {
-        // Signed up 
-        const user = userCredential.user;
-        updateProfile(user, { displayName: name }).then(() => {
-          toast({
-            title: 'Account Created!',
-            description: "We've created your account. Redirecting...",
-          });
-          router.push('/dashboard');
-        });
-      })
-      .catch((error) => {
-        const errorCode = error.code;
-        const errorMessage = error.message;
-        toast({
-          variant: "destructive",
-          title: 'Signup Failed',
-          description: errorMessage,
-        });
-      });
-  };
+    if (user) {
+        await createUserDoc(user);
+    }
+    
+    setBusy(false);
+    toast({
+        title: 'Account Created!',
+        description: 'Redirecting to your dashboard...',
+    });
+    router.push('/dashboard');
+  }
 
   return (
     <div className="flex h-screen w-screen items-center justify-center bg-gray-50 dark:bg-gray-900">
       <Card className="w-full max-w-sm">
-        <form onSubmit={handleSubmit}>
+        <form onSubmit={onSubmit}>
           <CardHeader className="text-center">
              <div className="mb-4 flex justify-center">
                 <Link href="/" className="flex items-center space-x-2">
@@ -108,14 +110,14 @@ export default function SignupPage() {
                 id="confirm-password" 
                 type="password" 
                 required 
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
+                value={confirm}
+                onChange={(e) => setConfirm(e.target.value)}
               />
             </div>
           </CardContent>
           <CardFooter className="flex flex-col gap-4">
-            <Button type="submit" className="w-full">
-              Sign Up
+            <Button type="submit" className="w-full" disabled={busy}>
+               {busy ? 'Signing up…' : 'Sign Up'}
             </Button>
             <p className="text-xs text-muted-foreground">
               Already have an account?{' '}
