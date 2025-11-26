@@ -1,8 +1,14 @@
+// src/app/trips/[tripId]/page.tsx
 'use client';
 
+import React from 'react';
+import dynamic from 'next/dynamic';
 import { useParams } from 'next/navigation';
-import { getCurrentUser, type LocalUser } from '@/lib/localAuth';
-import TripRoomClient from '@/components/trip/TripRoomClient';
+import { getCurrentUser } from '@/lib/localAuth';
+import TempEmuCheck from '@/components/TempEmuCheck';
+
+const TripRoomClient = dynamic(() => import('@/components/trip/TripRoomClient'), { ssr: false });
+
 
 export default function TripPage() {
   const params = useParams();
@@ -10,17 +16,19 @@ export default function TripPage() {
   const currentUser = getCurrentUser();
 
   if (!currentUser) {
-    // Or a redirect to login
     return <div className="flex h-screen items-center justify-center">You must be logged in to view a trip.</div>;
   }
-
-  // We are creating a simplified user object to pass to the client component.
-  // In a real app, you might fetch a full user profile.
+  
   const user = {
       id: currentUser.uid,
       name: currentUser.name,
       avatar: `https://i.pravatar.cc/150?u=${currentUser.uid}`
   };
 
-  return <TripRoomClient tripId={tripId} currentUser={user} />;
+  return (
+    <div style={{ width: '100%', height: '100vh' }}>
+      <TempEmuCheck />
+      <TripRoomClient tripId={tripId} currentUser={user} />
+    </div>
+  );
 }
