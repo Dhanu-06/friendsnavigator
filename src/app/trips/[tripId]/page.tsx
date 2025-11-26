@@ -25,6 +25,8 @@ import useTripRealtime from '@/hooks/useTripRealtime';
 import type { Participant } from '@/hooks/useTripRealtime';
 import useLiveLocation from '@/hooks/useLiveLocation';
 import { startSimulatedMovement } from '@/utils/demoLocationSimulator';
+import { getETAForParticipant } from '@/lib/getParticipantETA';
+
 
 export default function TripPage() {
   const params = useParams();
@@ -32,6 +34,7 @@ export default function TripPage() {
   const { toast } = useToast();
   const [trip, setTrip] = useState<Trip | null>(null);
   const [currentUser, setCurrentUser] = useState<LocalUser | null>(null);
+  const [friendsETA, setFriendsETA] = useState<any[]>([]);
 
   // Realtime data hooks
   const { participants, messages, expenses, joinOrUpdateParticipant, sendMessage, addExpense } = useTripRealtime(tripId);
@@ -63,13 +66,14 @@ export default function TripPage() {
             name: user.name,
             avatarUrl: `https://i.pravatar.cc/150?u=${user.uid}`,
             mode: 'unknown',
-            lat: localTrip?.destination.lat ?? 0,
-            lng: localTrip?.destination.lng ?? 0,
+            lat: trip?.destination.lat ?? 0,
+            lng: trip?.destination.lng ?? 0,
             status: 'On the way',
+            etaMinutes: 0,
         };
         joinOrUpdateParticipant(tripId, participantPayload);
     }
-  }, [tripId, toast, joinOrUpdateParticipant]);
+  }, [tripId, toast, joinOrUpdateParticipant, trip?.destination.lat, trip?.destination.lng]);
 
   // Effect to start location simulation
   useEffect(() => {
@@ -84,6 +88,7 @@ export default function TripPage() {
             lng,
             status: 'On the way',
             mode: 'car',
+            etaMinutes: 0,
         };
         joinOrUpdateParticipant(tripId, participantPayload);
     };
@@ -109,10 +114,44 @@ export default function TripPage() {
         lng,
         status: 'On the way',
         mode: 'car',
+        etaMinutes: 0,
       };
       joinOrUpdateParticipant(tripId, participantPayload);
     }
   }, [lastPosition, tripId, currentUser, joinOrUpdateParticipant]);
+
+  const refreshAllFriendsETA = useCallback(async () => {
+    const apiKey = process.env.NEXT_PUBLIC_TOMTOM_API_KEY;
+    if (!apiKey || !trip?.destination?.coords) return;
+  
+    const arr = [];
+  
+    for (const p of participants) {
+      if (!p.coords) continue; // skip offline friends
+      const eta = await getETAForParticipant(
+        p.coords,
+        trip.destination.coords,
+        apiKey
+      );
+      if (eta) {
+        arr.push({
+          id: p.id,
+          name: p.name,
+          etaMinutes: Math.round(eta.etaSeconds / 60),
+          distanceKm: (eta.distanceMeters / 1000).toFixed(1),
+        });
+      }
+    }
+  
+    arr.sort((a, b) => a.etaMinutes - b.etaMinutes); // fastest first  
+    setFriendsETA(arr);
+  }, [participants, trip?.destination.coords]);
+
+  useEffect(() => {
+    if (participants.length > 0) {
+      refreshAllFriendsETA();
+    }
+  }, [participants, refreshAllFriendsETA]);
 
 
   const copyCode = () => {
@@ -160,7 +199,15 @@ export default function TripPage() {
       avatarUrl: msg.avatarUrl
   }));
 
-  const uiParticipants = participants as any[];
+  const uiParticipants = useMemo(() => {
+    return participants.map(p => {
+      const etaData = friendsETA.find(f => f.id === p.id);
+      return {
+        ...p,
+        eta: etaData ? `${etaData.etaMinutes} min` : '...',
+      };
+    });
+  }, [participants, friendsETA]);
 
   return (
     <div className="flex flex-col h-screen bg-gray-50 dark:bg-black">

@@ -23,6 +23,7 @@ export type Participant = {
   mode?: string;
   etaMinutes?: number;
   status?: string;
+  coords?: { lat: number; lon: number };
 };
 
 const useEmulator = process.env.NEXT_PUBLIC_USE_FIREBASE_EMULATOR === 'true';

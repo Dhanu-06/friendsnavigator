@@ -14,7 +14,8 @@ export type Participant = {
   mode: string;
   eta: string;
   status: 'On the way' | 'Reached' | 'Delayed';
-  location: { lat: number; lng: number; };
+  location?: { lat: number; lng: number; };
+  coords?: { lat: number, lon: number };
 };
 
 const statusColors = {
@@ -40,11 +41,11 @@ export function ParticipantsList({ participants }: { participants: Participant[]
                 </Avatar>
                 <div className="flex-1">
                   <p className="font-semibold">{p.name}</p>
-                  <p className="text-sm text-muted-foreground">{p.mode}</p>
+                  <p className="text-sm text-muted-foreground capitalize">{p.mode}</p>
                 </div>
                 <div className="text-right">
-                  <Badge className={cn("text-xs", statusColors[p.status])}>
-                    {p.status}
+                  <Badge className={cn("text-xs", p.status ? statusColors[p.status] : 'bg-gray-100 text-gray-800')}>
+                    {p.status || '...'}
                   </Badge>
                   <p className="text-sm font-medium flex items-center justify-end gap-1 mt-1">
                     <Clock className="h-3 w-3" />
