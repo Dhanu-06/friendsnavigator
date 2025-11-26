@@ -12,12 +12,18 @@ const firebaseConfig = {
   appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
 };
 
-let app: FirebaseApp;
-let auth: Auth;
-let firestore: Firestore;
-
 // This function is memoized so it only runs once.
-function initializeFirebase() {
+const initializeFirebase = (() => {
+  let app: FirebaseApp;
+  let auth: Auth;
+  let firestore: Firestore;
+  let initialized = false;
+
+  return () => {
+    if (initialized) {
+      return { app, auth, firestore };
+    }
+
     if (getApps().length > 0) {
         app = getApp();
     } else {
@@ -36,7 +42,7 @@ function initializeFirebase() {
         console.warn("initializeFirestore with settings failed, falling back to getFirestore().", e);
     }
 
-    const useEmulator = process.env.NEXT_PUBLIC_USE_FIREBASE_EMULATOR === "true";
+    const useEmulator = process.env.NEXT_PUBLIC_USE_FIREBASE_EMULATOR === 'true';
 
     if (useEmulator) {
         const FIRESTORE_HOST = process.env.NEXT_PUBLIC_FIRESTORE_EMULATOR_HOST || "localhost";
@@ -66,12 +72,12 @@ function initializeFirebase() {
             }
         }
     }
-
+    
+    initialized = true;
     return { app, auth, firestore };
-}
+  };
+})();
 
-// Singleton instances for the whole app.
-const instances = initializeFirebase();
 
 // Export a function that returns the memoized instances.
-export const getFirebaseInstances = () => instances;
+export const getFirebaseInstances = () => initializeFirebase();

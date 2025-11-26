@@ -4,7 +4,6 @@ import { getFirebaseInstances } from '@/lib/firebaseClient';
 import { doc, setDoc, serverTimestamp, type Firestore } from 'firebase/firestore';
 
 const useEmulator = process.env.NEXT_PUBLIC_USE_FIREBASE_EMULATOR === 'true';
-const { firestore: db } = getFirebaseInstances();
 
 type Coords = {
     lat: number;
@@ -45,6 +44,7 @@ export async function publishParticipantLocation(tripId: string, user: User, coo
      return { source: "local" };
   }
 
+  const { firestore: db } = getFirebaseInstances();
   if (!db) {
       console.error("publishParticipantLocation: Firestore instance is not available. Cannot publish location.");
       throw new Error("Firestore not initialized.");

@@ -28,9 +28,6 @@ export type Participant = {
 };
 
 const useEmulator = process.env.NEXT_PUBLIC_USE_FIREBASE_EMULATOR === 'true';
-// Get the firestore instance from the single source of truth.
-const { firestore } = getFirebaseInstances();
-
 
 export default function useTripRealtime(tripId?: string) {
   const [participants, setParticipants] = useState<Participant[]>([]);
@@ -45,9 +42,9 @@ export default function useTripRealtime(tripId?: string) {
 
     // The getFirebaseInstances() function now handles the emulator connection logic.
     // If not using emulator, or if firestore is unavailable, we rely on local storage.
-    if (!useEmulator || !firestore) {
+    if (!useEmulator) {
         if (typeof window !== 'undefined') {
-          console.warn('Realtime hook: Firestore unavailable or emulator disabled. Using local fallback for all data.');
+          console.warn('Realtime hook: Emulator disabled. Using local fallback for all data.');
           const t = getTripById(tripId);
           if (t) {
               setParticipants(t.participants ?? []);
@@ -55,6 +52,13 @@ export default function useTripRealtime(tripId?: string) {
               setExpenses(t.expenses ?? []);
           }
         }
+        return;
+    }
+    
+    // getFirebaseInstances is now the single source of truth
+    const { firestore } = getFirebaseInstances();
+    if (!firestore) {
+        console.error("useTripRealtime: Firestore instance is not available. Check Firebase client initialization.");
         return;
     }
 
@@ -125,6 +129,7 @@ export default function useTripRealtime(tripId?: string) {
 
   // join or update a participant
   const joinOrUpdateParticipant = useCallback(async (tripIdStr: string, p: Participant) => {
+    const { firestore } = getFirebaseInstances();
     if (!useEmulator || !firestore) {
         updateLocalTrip(tripIdStr, (trip) => {
           const newParticipants = [...(trip.participants ?? [])];
@@ -157,6 +162,7 @@ export default function useTripRealtime(tripId?: string) {
   }, [updateLocalTrip]);
 
   const sendMessage = useCallback(async (tripIdStr: string, payload:{senderId:string, text:string, userName: string, avatarUrl: string}) => {
+    const { firestore } = getFirebaseInstances();
      if (!useEmulator || !firestore) {
         updateLocalTrip(tripIdStr, (trip) => {
           trip.messages = [...(trip.messages ?? []), { id: String(Date.now()), ...payload, createdAt: new Date().toISOString() }];
@@ -180,6 +186,7 @@ export default function useTripRealtime(tripId?: string) {
   }, [updateLocalTrip]);
 
   const addExpense = useCallback(async (tripIdStr: string, payload:{paidBy:string,amount:number,label:string}) => {
+    const { firestore } = getFirebaseInstances();
      if (!useEmulator || !firestore) {
        updateLocalTrip(tripIdStr, (trip) => {
           trip.expenses = [...(trip.expenses ?? []), { id: String(Date.now()), ...payload }];
