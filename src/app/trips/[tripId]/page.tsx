@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -21,69 +21,65 @@ import { TripCodeBadge } from '@/components/trip/TripCodeBadge';
 import { useToast } from '@/components/ui/use-toast';
 import { getTripById } from '@/lib/tripStore';
 import type { Trip } from '@/lib/tripStore';
-import { getCurrentUser } from '@/lib/localAuth';
+import { getCurrentUser, type LocalUser } from '@/lib/localAuth';
 import useTripRealtime from '@/hooks/useTripRealtime';
 import type { Participant } from '@/hooks/useTripRealtime';
-import { startSimulatedMovement } from '@/utils/demoLocationSimulator';
+import useLiveLocation from '@/hooks/useLiveLocation';
 
 export default function TripPage() {
   const params = useParams();
   const tripId = Array.isArray(params.tripId) ? params.tripId[0] : params.tripId;
   const { toast } = useToast();
   const [trip, setTrip] = useState<Trip | null>(null);
+  const [currentUser, setCurrentUser] = useState<LocalUser | null>(null);
 
   // Realtime data hooks
   const { participants, messages, expenses, joinOrUpdateParticipant, sendMessage, addExpense } = useTripRealtime(tripId);
 
-  // Effect to load trip data and join as a participant
+  // Live location hook
+  const { lastPosition, permission, error: locationError } = useLiveLocation(tripId, currentUser ? { id: currentUser.uid, name: currentUser.name, avatarUrl: `https://i.pravatar.cc/150?u=${currentUser.uid}` } : null, { enableWatch: true, watchIntervalMs: 5000 });
+
+  // Effect to load initial trip data and user
   useEffect(() => {
-    if (!tripId) return;
-    
-    const localTrip = getTripById(tripId);
-    if (localTrip) {
-      setTrip(localTrip);
-
-      const localUser = getCurrentUser();
-      const userId = localUser?.uid ?? 'anon_' + Math.random().toString(36).slice(2, 6);
-      const userName = localUser?.name ?? 'Anonymous';
-      const userAvatar = `https://i.pravatar.cc/150?u=${userId}`;
-
-      const participantPayload: Participant = {
-        id: userId,
-        name: userName,
-        avatarUrl: userAvatar,
-        mode: 'unknown',
-        lat: localTrip.destination.lat,
-        lng: localTrip.destination.lng,
-        status: 'joined',
-      };
-
-      // Announce participation to Firestore (or local fallback)
-      joinOrUpdateParticipant(tripId, participantPayload);
-      console.log('Joined trip as:', userName);
-
-      // Start simulating movement
-      const stopSimulation = startSimulatedMovement(
-        localTrip.destination.lat,
-        localTrip.destination.lng,
-        (lat, lng) => {
-          const updatePayload: Participant = { ...participantPayload, lat, lng, status: 'On the way' };
-          joinOrUpdateParticipant(tripId, updatePayload);
-        }
-      );
-      
-      // Cleanup simulation on component unmount
-      return () => stopSimulation();
-
-    } else {
-      // Handle trip not found
-      toast({
-        variant: 'destructive',
-        title: 'Trip not found',
-        description: 'The trip you are looking for does not exist in local storage.',
-      });
+    if (tripId) {
+      const localTrip = getTripById(tripId);
+      if (localTrip) {
+        setTrip(localTrip);
+      } else {
+        toast({
+          variant: 'destructive',
+          title: 'Trip not found',
+          description: 'The trip you are looking for does not exist.',
+        });
+      }
     }
-  }, [tripId, joinOrUpdateParticipant, toast]);
+    setCurrentUser(getCurrentUser());
+  }, [tripId, toast]);
+
+
+  // Effect to join trip and update location periodically
+  useEffect(() => {
+    if (!tripId || !currentUser) return;
+    
+    // Initial join/update with best-known location
+    const participantPayload: Participant = {
+      id: currentUser.uid,
+      name: currentUser.name,
+      avatarUrl: `https://i.pravatar.cc/150?u=${currentUser.uid}`,
+      mode: 'unknown',
+      lat: lastPosition?.lat ?? trip?.destination.lat,
+      lng: lastPosition?.lng ?? trip?.destination.lng,
+      status: 'On the way',
+    };
+    joinOrUpdateParticipant(tripId, participantPayload);
+    
+    // If we get a new position from the location hook, update our status
+    if (lastPosition) {
+       const updatePayload: Participant = { ...participantPayload, lat: lastPosition.lat, lng: lastPosition.lng };
+       joinOrUpdateParticipant(tripId, updatePayload);
+    }
+  // This should run when the user is known or their location changes.
+  }, [tripId, currentUser, lastPosition, joinOrUpdateParticipant, trip?.destination]);
 
 
   const copyCode = () => {
@@ -93,13 +89,12 @@ export default function TripPage() {
   };
   
   const handleSendMessage = async (text: string) => {
-    if (!tripId) return;
-    const localUser = getCurrentUser();
+    if (!tripId || !currentUser) return;
     const payload = {
-        senderId: localUser?.uid ?? 'anon',
+        senderId: currentUser.uid,
         text: text,
-        userName: localUser?.name ?? 'You',
-        avatarUrl: `https://i.pravatar.cc/150?u=${localUser?.uid ?? 'anon'}`
+        userName: currentUser.name,
+        avatarUrl: `https://i.pravatar.cc/150?u=${currentUser.uid}`
     };
     await sendMessage(tripId, payload);
   };
@@ -109,11 +104,32 @@ export default function TripPage() {
     await addExpense(tripId, newExpense);
   }
 
+  // Combine realtime participants with the current user's latest position for the map
+  const mapParticipants = useMemo(() => {
+      if (!currentUser || !participants) return [];
+      
+      const otherParticipants = participants.filter(p => p.id !== currentUser.id);
+      
+      const me: Participant = {
+          id: currentUser.id,
+          name: currentUser.name,
+          avatarUrl: `https://i.pravatar.cc/150?u=${currentUser.uid}`,
+          lat: lastPosition?.lat ?? trip?.destination.lat,
+          lng: lastPosition?.lng ?? trip?.destination.lng,
+          status: 'On the way',
+          mode: 'car'
+      };
+
+      return [...otherParticipants, me];
+
+  }, [participants, currentUser, lastPosition, trip?.destination.lat, trip?.destination.lng]);
+
+
   if (!trip) {
     return <div className="flex h-screen items-center justify-center">Loading trip...</div>;
   }
 
-  const friendLocations = participants.map(p => ({
+  const friendLocations = mapParticipants.map(p => ({
     id: p.id,
     name: p.name,
     lat: p.lat ?? 0,
@@ -124,11 +140,13 @@ export default function TripPage() {
 
   const chatMessages = messages.map(msg => ({
       id: msg.id,
-      userName: msg.userName,
+      userName: msg.userName === currentUser?.name ? 'You' : msg.userName,
       text: msg.text,
       timestamp: msg.createdAt?.toDate ? msg.createdAt.toDate().toLocaleTimeString() : new Date(msg.createdAt).toLocaleTimeString(),
       avatarUrl: msg.avatarUrl
   }));
+
+  const uiParticipants = participants as any[];
 
   return (
     <div className="flex flex-col h-screen bg-gray-50 dark:bg-black">
@@ -159,7 +177,7 @@ export default function TripPage() {
                   <MapClient friends={friendLocations} center={{lat: trip.destination.lat, lng: trip.destination.lng}} />
                </Card>
                <Card className="flex-grow-[1]">
-                 <ParticipantsList participants={participants} />
+                 <ParticipantsList participants={uiParticipants} />
                </Card>
             </div>
 
@@ -184,7 +202,7 @@ export default function TripPage() {
                   </TabsContent>
                   <TabsContent value="expenses" className="flex-1 overflow-y-auto p-4">
                     <ExpenseCalculator 
-                        participants={participants} 
+                        participants={uiParticipants} 
                         expenses={expenses}
                         onAddExpense={handleAddExpense}
                     />
