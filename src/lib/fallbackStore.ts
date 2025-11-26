@@ -1,7 +1,9 @@
+
 // src/lib/fallbackStore.ts
 export function readTripsLocal() {
   try {
-    const raw = typeof window !== "undefined" ? localStorage.getItem("trips") : "{}";
+    if (typeof window === "undefined") return {};
+    const raw = localStorage.getItem("trips");
     return JSON.parse(raw || "{}");
   } catch (e) {
     console.warn("readTripsLocal parse error", e);
@@ -27,7 +29,7 @@ export function getTripLocal(tripId: string) {
 
 export function saveTripLocal(tripId: string, data: any) {
   const map = readTripsLocal();
-  map[tripId] = { ...(map[tripId] || {}), ...data };
+  map[tripId] = { ...map[tripId], ...data };
   writeTripsLocal(map);
   return map[tripId];
 }

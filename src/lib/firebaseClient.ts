@@ -1,4 +1,5 @@
-// lib/firebaseClient.ts
+
+// src/lib/firebaseClient.ts
 import { initializeApp, getApps, getApp, type FirebaseApp } from "firebase/app";
 import { getAuth, connectAuthEmulator, type Auth } from "firebase/auth";
 import { getFirestore, connectFirestoreEmulator, initializeFirestore, type Firestore } from "firebase/firestore";

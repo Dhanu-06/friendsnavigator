@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
@@ -18,7 +19,6 @@ import { ChatBox } from '@/components/trip/ChatBox';
 import { ExpenseCalculator } from '@/components/trip/ExpenseCalculator';
 import { TripCodeBadge } from '@/components/trip/TripCodeBadge';
 import { useToast } from '@/components/ui/use-toast';
-import { getTripById } from '@/lib/tripStore';
 import type { Trip } from '@/lib/tripStore';
 import { getCurrentUser, type LocalUser } from '@/lib/localAuth';
 import useTripRealtime from '@/hooks/useTripRealtime';

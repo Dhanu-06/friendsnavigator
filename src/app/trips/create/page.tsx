@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useState } from 'react';
@@ -14,6 +15,7 @@ import { OutstationModeSelector } from '@/components/create/OutstationModeSelect
 import { TripTypeToggle, TripType } from '@/components/create/TripTypeToggle';
 import { cn } from '@/lib/utils';
 import { saveTrip } from '@/lib/storeAdapter';
+import { getCurrentUser } from '@/lib/localAuth';
 
 type TripData = {
   name: string;
@@ -27,6 +29,7 @@ export default function CreateTripPage() {
   const [tripData, setTripData] = useState<Partial<TripData>>({
     tripType: 'within-city',
   });
+  const [createdTripId, setCreatedTripId] = useState<string | null>(null);
   const router = useRouter();
   const { toast } = useToast();
 
@@ -38,6 +41,12 @@ export default function CreateTripPage() {
   const prevStep = () => setStep((s) => s - 1);
 
   const handleCreateTrip = async () => {
+    const user = getCurrentUser();
+    if (!user) {
+        toast({ title: 'Error', description: 'You must be logged in to create a trip.', variant: 'destructive' });
+        return;
+    }
+    
     // A real app would get lat/lng from a geocoding service
     const destination = {
         name: tripData.destination || 'Unknown',
@@ -52,33 +61,47 @@ export default function CreateTripPage() {
         name: tripData.name!,
         destination: destination,
         tripType: tripData.tripType!,
-        participants: [],
+        participants: [{id: user.uid, name: user.name, avatarUrl: `https://i.pravatar.cc/150?u=${user.uid}`}],
         messages: [],
         expenses: [],
         createdAt: Date.now(),
     };
 
-    await saveTrip(tripId, newTrip);
+    const result = await saveTrip(tripId, newTrip);
+    setCreatedTripId(tripId);
 
-    toast({
-      title: 'Trip Created!',
-      description: 'Redirecting to your new trip room...',
-    });
+    if (result.source === 'local-fallback') {
+        toast({
+            title: 'Trip Created (Offline)',
+            description: 'Your trip was saved locally. It will sync when you are back online.',
+        });
+    } else {
+        toast({
+            title: 'Trip Created!',
+            description: 'Your trip room is ready.',
+        });
+    }
     
-    setTimeout(() => {
-        router.push(`/trips/${tripId}`);
-    }, 1000);
+    // Proceed to the final step to show the trip code
+    nextStep();
   };
+  
+  const goToTripRoom = () => {
+      if (createdTripId) {
+          router.push(`/trips/${createdTripId}`);
+      }
+  }
 
   const copyTripCode = () => {
-    navigator.clipboard.writeText("FRIEND-1234");
+    if (!createdTripId) return;
+    navigator.clipboard.writeText(createdTripId);
     toast({
         title: "Copied!",
         description: "Trip code copied to clipboard."
     });
   }
 
-  const progress = (step / 4) * 100;
+  const progress = ((step - 1) / 3) * 100;
   
   return (
     <div className="flex flex-col min-h-screen items-center justify-center bg-gray-50 dark:bg-gray-900 p-4">
@@ -138,7 +161,7 @@ export default function CreateTripPage() {
                         </CardContent>
                         <CardFooter className="flex justify-between">
                             <Button variant="outline" onClick={prevStep}><ArrowLeft className="mr-2 h-4 w-4"/> Back</Button>
-                            <Button onClick={nextStep} disabled={!tripData.mode}>Go to Final Step <ArrowRight className="ml-2 h-4 w-4"/></Button>
+                            <Button onClick={handleCreateTrip} disabled={!tripData.mode}>Create Trip & Get Code <ArrowRight className="ml-2 h-4 w-4"/></Button>
                         </CardFooter>
                     </div>
 
@@ -163,12 +186,12 @@ export default function CreateTripPage() {
 
                             <div className="p-4 border-2 border-dashed rounded-lg">
                                 <p className="text-sm text-muted-foreground">Your Trip Code</p>
-                                <p className="text-2xl font-bold font-mono tracking-widest">FRIEND-1234</p>
+                                <p className="text-2xl font-bold font-mono tracking-widest">{createdTripId}</p>
                             </div>
                         </CardContent>
                         <CardFooter className="flex flex-col sm:flex-row gap-4">
                             <Button variant="secondary" className="w-full" onClick={copyTripCode}><Clipboard className="mr-2 h-4 w-4"/> Copy Trip Code</Button>
-                            <Button className="w-full" onClick={handleCreateTrip}>Go To Trip Room <ArrowRight className="ml-2 h-4 w-4"/></Button>
+                            <Button className="w-full" onClick={goToTripRoom}>Go To Trip Room <ArrowRight className="ml-2 h-4 w-4"/></Button>
                         </CardFooter>
                     </div>
                 </div>

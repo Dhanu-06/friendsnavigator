@@ -15,9 +15,9 @@ import {
 import { ArrowRight, PlusCircle } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { getCurrentUser, type LocalUser } from '@/lib/localAuth';
-import { getRecentTrips, fetchTripByCode, joinTrip, type Trip } from '@/lib/tripStore';
+import type { Trip } from '@/lib/tripStore';
 import JoinTripPreview from '@/components/trip/JoinTripPreview';
-import { getTrip, joinTrip as joinTripAdapter } from '@/lib/storeAdapter';
+import { getTrip, joinTrip as joinTripAdapter, getRecentTrips } from '@/lib/storeAdapter';
 
 function useLocalUser() {
   const [user, setUser] = useState<LocalUser | null>(null);
@@ -37,8 +37,11 @@ export default function DashboardPage() {
   const [recentTrips, setRecentTrips] = useState<Trip[]>([]);
 
   useEffect(() => {
-    // This now uses the local-only version for speed on the dashboard.
-    setRecentTrips(getRecentTrips());
+    async function loadRecentTrips() {
+        const trips = await getRecentTrips();
+        setRecentTrips(trips);
+    }
+    loadRecentTrips();
   }, []);
 
   const handleJoinSuccess = (tripId: string) => {

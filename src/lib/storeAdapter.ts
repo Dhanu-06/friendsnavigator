@@ -1,3 +1,4 @@
+
 // src/lib/storeAdapter.ts
 import { getFirebaseInstances } from "@/lib/firebaseClient";
 import { doc, getDoc, setDoc } from "firebase/firestore";
@@ -6,9 +7,9 @@ import type { Trip } from './tripStore';
 
 
 export async function getTrip(tripId: string): Promise<{data: Trip | null, source: string}> {
-  // try Firestore first
   try {
     const { firestore } = getFirebaseInstances();
+    if (!firestore) throw new Error("Firestore not initialized");
     const ref = doc(firestore, "trips", tripId);
     const snap = await getDoc(ref);
     if (snap.exists()) return { data: snap.data() as Trip, source: "firestore" };
@@ -26,6 +27,7 @@ export async function getTrip(tripId: string): Promise<{data: Trip | null, sourc
 export async function saveTrip(tripId: string, data: any) {
   try {
     const { firestore } = getFirebaseInstances();
+    if (!firestore) throw new Error("Firestore not initialized");
     const ref = doc(firestore, "trips", tripId);
     await setDoc(ref, data, { merge: true });
     // Also save locally to ensure consistency if emulator is flaky
@@ -39,17 +41,17 @@ export async function saveTrip(tripId: string, data: any) {
 }
 
 export async function joinTrip(tripId: string, participant: any) {
+    addParticipantLocal(tripId, participant);
     try {
         const { firestore } = getFirebaseInstances();
+        if (!firestore) throw new Error("Firestore not initialized");
         const ref = doc(firestore, "trips", tripId);
-
-        // Optimistic local update before remote
-        addParticipantLocal(tripId, participant);
 
         const snap = await getDoc(ref);
         if (!snap.exists()) {
             // If trip doesn't exist remotely, create it with the participant
-            await setDoc(ref, { id: tripId, participants: [participant], name: `Trip ${tripId}`, destination: {}, createdAt: new Date().toISOString() }, { merge: true });
+            const newTrip = getTripLocal(tripId);
+            await setDoc(ref, newTrip, { merge: true });
             return { source: "firestore-created" };
         } else {
             // Otherwise, merge the participant into the existing trip
