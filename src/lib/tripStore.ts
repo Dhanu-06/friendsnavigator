@@ -44,13 +44,11 @@ export function getRecentTrips(): Trip[] {
     return Object.values(trips).sort((a:any, b:any) => (b.createdAt || 0) - (a.createdAt || 0));
 }
 
-// New function to fetch a trip by its code/id for the preview component
 export async function fetchTripByCode(code: string): Promise<Trip | null> {
   // This is an async function to mimic a real API call
   return Promise.resolve(getTripById(code));
 }
 
-// New function to add a user to a trip's participant list
 export async function joinTrip(tripId: string, user: { id: string; name: string; avatarUrl?: string }): Promise<void> {
   const trips = getTrips();
   const trip = trips[tripId];
@@ -61,13 +59,25 @@ export async function joinTrip(tripId: string, user: { id: string; name: string;
 
   trip.participants = trip.participants || [];
 
-  // Add participant only if they are not already in the list
   if (!trip.participants.some(p => p.id === user.id)) {
     trip.participants.push(user);
   }
   
-  trips[tripId] = trip;
-  localStorage.setItem(TRIPS_STORAGE_KEY, JSON.stringify(trips));
+  saveTrip(trip);
   
   return Promise.resolve();
+}
+
+export async function saveTripLocalOnly(tripId: string, data: Trip) {
+  const raw = localStorage.getItem(TRIPS_STORAGE_KEY) || "{}";
+  const map = JSON.parse(raw);
+  map[tripId] = data;
+  localStorage.setItem(TRIPS_STORAGE_KEY, JSON.stringify(map));
+  return { source: "local" };
+}
+
+export function getTripLocal(tripId: string) {
+  const raw = localStorage.getItem(TRIPS_STORAGE_KEY) || "{}";
+  const map = JSON.parse(raw);
+  return map[tripId] || null;
 }

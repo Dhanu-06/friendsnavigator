@@ -7,16 +7,12 @@ import {
   doc,
   setDoc,
   addDoc,
-  updateDoc,
   onSnapshot,
   query,
   orderBy,
   serverTimestamp,
-  getDoc,
-  getDocs,
 } from 'firebase/firestore';
 import { getTripById, saveTrip as saveTripLocal, type Trip } from '@/lib/tripStore';
-import { getCurrentUser } from '@/lib/localAuth';
 
 export type Participant = {
   id: string;
@@ -71,6 +67,10 @@ export default function useTripRealtime(tripId?: string) {
         const arr: any[] = [];
         snap.forEach((d) => arr.push({ id: d.id, ...(d.data() as any) }));
         setMessages(arr);
+      }, (err) => {
+          console.error("Messages snapshot error, falling back to local.", err);
+          const t = getTripById(tripId);
+          if (t) setMessages(t.messages ?? []);
       });
 
       const eCol = collection(db, 'trips', tripId, 'expenses');
@@ -78,6 +78,10 @@ export default function useTripRealtime(tripId?: string) {
         const arr: any[] = [];
         snap.forEach((d) => arr.push({ id: d.id, ...(d.data() as any) }));
         setExpenses(arr);
+      }, (err) => {
+          console.error("Expenses snapshot error, falling back to local.", err);
+          const t = getTripById(tripId);
+          if (t) setExpenses(t.expenses ?? []);
       });
 
       return () => {
@@ -91,11 +95,13 @@ export default function useTripRealtime(tripId?: string) {
       const t = getTripById(tripId);
       if (t) {
         setParticipants(t.participants ?? []);
+        setMessages(t.messages ?? []);
+        setExpenses(t.expenses ?? []);
       }
     }
   }, [tripId]);
 
-  const updateLocalTrip = (tripId: string, update: (trip: Trip) => Trip) => {
+  const updateLocalTrip = useCallback((tripId: string, update: (trip: Trip) => Trip) => {
     const trip = getTripById(tripId);
     if (trip) {
       const updatedTrip = update(trip);
@@ -104,7 +110,7 @@ export default function useTripRealtime(tripId?: string) {
       setMessages([...(updatedTrip.messages ?? [])]);
       setExpenses([...(updatedTrip.expenses ?? [])]);
     }
-  };
+  }, []);
 
   // join or update a participant
   const joinOrUpdateParticipant = useCallback(async (tripIdStr: string, p: Participant) => {
@@ -117,16 +123,16 @@ export default function useTripRealtime(tripId?: string) {
           trip.participants = newParticipants;
           return trip;
         });
-        return { ok: false, error: new Error("Emulator not enabled") };
+        return { ok: true, source: 'local' };
     }
     try {
       await setDoc(doc(db, 'trips', tripIdStr, 'participants', p.id), {
         ...p,
         updatedAt: serverTimestamp(),
       }, { merge: true });
-      return { ok: true };
+      return { ok: true, source: 'firestore' };
     } catch (err) {
-      console.warn('joinOrUpdateParticipant failed, local fallback', err);
+      console.warn('joinOrUpdateParticipant failed, falling back to local', err);
       updateLocalTrip(tripIdStr, (trip) => {
         const newParticipants = [...(trip.participants ?? [])];
         const idx = newParticipants.findIndex(x => x.id === p.id);
@@ -135,9 +141,9 @@ export default function useTripRealtime(tripId?: string) {
         trip.participants = newParticipants;
         return trip;
       });
-      return { ok: false, error: err };
+      return { ok: false, error: err, source: 'local' };
     }
-  }, []);
+  }, [updateLocalTrip]);
 
   const sendMessage = useCallback(async (tripIdStr: string, payload:{senderId:string, text:string, userName: string, avatarUrl: string}) => {
      if (!useEmulator) {
@@ -145,22 +151,22 @@ export default function useTripRealtime(tripId?: string) {
           trip.messages = [...(trip.messages ?? []), { id: String(Date.now()), ...payload, createdAt: new Date().toISOString() }];
           return trip;
         });
-        return { ok: false, error: new Error("Emulator not enabled") };
+        return { ok: true, source: 'local' };
     }
     try {
       await addDoc(collection(db, 'trips', tripIdStr, 'messages'), {
         ...payload, createdAt: serverTimestamp()
       });
-      return { ok: true };
+      return { ok: true, source: 'firestore' };
     } catch (err) {
-      console.warn('sendMessage failed, local fallback', err);
+      console.warn('sendMessage failed, falling back to local', err);
       updateLocalTrip(tripIdStr, (trip) => {
         trip.messages = [...(trip.messages ?? []), { id: String(Date.now()), ...payload, createdAt: new Date().toISOString() }];
         return trip;
       });
-      return { ok:false, error:err };
+      return { ok:false, error:err, source: 'local' };
     }
-  }, []);
+  }, [updateLocalTrip]);
 
   const addExpense = useCallback(async (tripIdStr: string, payload:{paidBy:string,amount:number,label:string}) => {
      if (!useEmulator) {
@@ -168,20 +174,20 @@ export default function useTripRealtime(tripId?: string) {
           trip.expenses = [...(trip.expenses ?? []), { id: String(Date.now()), ...payload }];
           return trip;
         });
-       return { ok: false, error: new Error("Emulator not enabled") };
+       return { ok: true, source: 'local' };
     }
     try {
       await addDoc(collection(db, 'trips', tripIdStr, 'expenses'), { ...payload, createdAt: serverTimestamp() });
-      return { ok:true };
+      return { ok:true, source: 'firestore' };
     } catch (err) {
-      console.warn('addExpense failed, local fallback', err);
+      console.warn('addExpense failed, falling back to local', err);
       updateLocalTrip(tripIdStr, (trip) => {
           trip.expenses = [...(trip.expenses ?? []), { id: String(Date.now()), ...payload }];
           return trip;
         });
-      return { ok:false, error:err };
+      return { ok:false, error:err, source: 'local' };
     }
-  }, []);
+  }, [updateLocalTrip]);
 
   return {
     participants,
