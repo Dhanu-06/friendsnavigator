@@ -40,7 +40,7 @@ export default function TripPage() {
   const { participants, messages, expenses, joinOrUpdateParticipant, sendMessage, addExpense } = useTripRealtime(tripId);
 
   // Live location hook for the current user
-  const { lastPosition } = useLiveLocation(tripId, currentUser ? { id: currentUser.uid, name: currentUser.name, avatarUrl: `https://i.pravatar.cc/150?u=${currentUser.uid}` } : null);
+  useLiveLocation(tripId, currentUser ? { id: currentUser.uid, name: currentUser.name, avatarUrl: `https://i.pravatar.cc/150?u=${currentUser.uid}` } : null);
 
   // Effect to load initial trip data and user
   useEffect(() => {
@@ -58,26 +58,24 @@ export default function TripPage() {
     }
     const user = getCurrentUser();
     setCurrentUser(user);
+  }, [tripId, toast]);
 
-    if (tripId && user) {
-        // Initial join/update with best-known location
-        const participantPayload: Participant = {
-            id: user.uid,
-            name: user.name,
-            avatarUrl: `https://i.pravatar.cc/150?u=${user.uid}`,
-            mode: 'unknown',
-            lat: trip?.destination.lat ?? 0,
-            lng: trip?.destination.lng ?? 0,
-            status: 'On the way',
-            etaMinutes: 0,
-        };
-        joinOrUpdateParticipant(tripId, participantPayload);
-    }
-  }, [tripId, toast, joinOrUpdateParticipant, trip?.destination.lat, trip?.destination.lng]);
-
-  // Effect to start location simulation
+  // Effect to join trip and start location simulation
   useEffect(() => {
     if (!tripId || !currentUser || !trip?.destination) return;
+
+    // Initial join/update with best-known location
+    const initialParticipantPayload: Participant = {
+        id: currentUser.uid,
+        name: currentUser.name,
+        avatarUrl: `https://i.pravatar.cc/150?u=${currentUser.uid}`,
+        mode: 'unknown',
+        lat: trip.destination.lat, // Start near destination for simulation
+        lng: trip.destination.lng,
+        status: 'On the way',
+        etaMinutes: 0,
+    };
+    joinOrUpdateParticipant(tripId, initialParticipantPayload);
 
     const onLocationUpdate = (lat: number, lng: number) => {
         const participantPayload: Participant = {
@@ -102,24 +100,6 @@ export default function TripPage() {
     return () => stopSimulation();
   }, [tripId, currentUser, trip?.destination, joinOrUpdateParticipant]);
   
-  // Effect to update participant location from the live location hook
-  useEffect(() => {
-    if (lastPosition && tripId && currentUser) {
-      const { lat, lng } = lastPosition;
-      const participantPayload: Participant = {
-        id: currentUser.uid,
-        name: currentUser.name,
-        avatarUrl: `https://i.pravatar.cc/150?u=${currentUser.uid}`,
-        lat,
-        lng,
-        status: 'On the way',
-        mode: 'car',
-        etaMinutes: 0,
-      };
-      joinOrUpdateParticipant(tripId, participantPayload);
-    }
-  }, [lastPosition, tripId, currentUser, joinOrUpdateParticipant]);
-
   const refreshAllFriendsETA = useCallback(async () => {
     const apiKey = process.env.NEXT_PUBLIC_TOMTOM_API_KEY;
     if (!apiKey || !trip?.destination) return;

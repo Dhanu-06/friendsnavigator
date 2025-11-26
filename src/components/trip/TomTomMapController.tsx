@@ -2,20 +2,9 @@
 
 // components/trip/TomTomMapController.tsx
 import React, { useEffect, useRef, useState } from "react";
-import tt from "@tomtom-international/web-sdk-maps";
-// @ts-ignore
-import SearchBox from "@tomtom-international/web-sdk-plugin-searchbox";
-
-const TOMTOM_KEY = process.env.NEXT_PUBLIC_TOMTOM_API_KEY;
+import type { Participant } from '@/hooks/useTripRealtime';
 
 type LatLng = { lat: number; lon: number };
-
-export type Participant = {
-  id: string;
-  name: string;
-  coords?: LatLng;
-  avatarUrl?: string | null;
-};
 
 type Props = {
   origin?: { label?: string; coords?: LatLng } | null;
@@ -51,8 +40,9 @@ export default function TomTomMapController({
   // init map on client
   useEffect(() => {
     if (!mapRef.current || typeof window === "undefined") return;
+    const TOMTOM_KEY = process.env.NEXT_PUBLIC_TOMTOM_KEY;
     if (!TOMTOM_KEY) {
-      console.error("TomTom API key not set. Add NEXT_PUBLIC_TOMTOM_API_KEY to your .env file.");
+      console.error("TomTom API key not set. Add NEXT_PUBLIC_TOMTOM_KEY to your .env file.");
       return;
     }
     if (ttMapRef.current) {
@@ -60,41 +50,56 @@ export default function TomTomMapController({
       return;
     }
 
-    const map = tt.map({
-      key: TOMTOM_KEY,
-      container: mapRef.current,
-      center: destination?.coords ? [destination.coords.lon, destination.coords.lat] : origin?.coords ? [origin.coords.lon, origin.coords.lat] : [77.5946, 12.9716],
-      zoom: 12,
-      language: "en-US",
-    });
+    let tt: any;
+    let SearchBox: any;
 
-    ttMapRef.current = map;
-    map.addControl(new tt.FullscreenControl());
-    map.addControl(new tt.NavigationControl());
+    const initMap = async () => {
+        try {
+            tt = await import("@tomtom-international/web-sdk-maps");
+            SearchBox = (await import("@tomtom-international/web-sdk-plugin-searchbox")).default;
+        } catch(e) {
+            console.error("Failed to load TomTom SDK", e);
+            return;
+        }
+        
+        const map = tt.default.map({
+          key: TOMTOM_KEY,
+          container: mapRef.current,
+          center: destination?.coords ? [destination.coords.lon, destination.coords.lat] : origin?.coords ? [origin.coords.lon, origin.coords.lat] : [77.5946, 12.9716],
+          zoom: 12,
+          language: "en-US",
+        });
 
-    try {
-      const searchBox = new SearchBox({
-        apiKey: TOMTOM_KEY,
-        language: "en-US",
-        position: "top-left",
-      });
-      map.addControl(searchBox);
-      searchBox.on("tomtom.searchbox.result", (ev: any) => {
-        const res = ev?.result;
-        if (!res) return;
-        const coords = res.position ? { lat: res.position.lat, lon: res.position.lon } : undefined;
-        const label = res.address?.freeformAddress || res.poi?.name || res.label;
-        onSearchResult?.({ label, coords });
-      });
-    } catch (e) {
-      console.warn("SearchBox plugin not initialized", e);
+        ttMapRef.current = map;
+        map.addControl(new tt.default.FullscreenControl());
+        map.addControl(new tt.default.NavigationControl());
+
+        try {
+          const searchBox = new SearchBox({
+            apiKey: TOMTOM_KEY,
+            language: "en-US",
+            position: "top-left",
+          });
+          map.addControl(searchBox);
+          searchBox.on("tomtom.searchbox.result", (ev: any) => {
+            const res = ev?.result;
+            if (!res) return;
+            const coords = res.position ? { lat: res.position.lat, lon: res.position.lon } : undefined;
+            const label = res.address?.freeformAddress || res.poi?.name || res.label;
+            onSearchResult?.({ label, coords });
+          });
+        } catch (e) {
+          console.warn("SearchBox plugin not initialized", e);
+        }
+
+        map.on("load", () => setMapReady(true));
     }
-
-    map.on("load", () => setMapReady(true));
+    
+    initMap();
 
     return () => {
       try {
-        map.remove();
+        ttMapRef.current?.remove();
       } catch (err) {}
       ttMapRef.current = null;
       // cancel animations
@@ -184,9 +189,9 @@ export default function TomTomMapController({
        el.textContent = key?.[0]?.toUpperCase?.() || "?";
     }
 
-    const marker = new tt.Marker({ element: el }).setLngLat([coords.lon, coords.lat]).addTo(ttMapRef.current);
+    const marker = new (sdkRef.current.default.Marker)({ element: el }).setLngLat([coords.lon, coords.lat]).addTo(ttMapRef.current);
     if (popupHtml) {
-      const popup = new tt.Popup({ offset: 20 }).setHTML(popupHtml);
+      const popup = new (sdkRef.current.default.Popup)({ offset: 20 }).setHTML(popupHtml);
       marker.setPopup(popup);
     }
     markersRef.current[key] = { marker };
@@ -209,9 +214,10 @@ export default function TomTomMapController({
     if (!mapReady) return;
     const seen: Record<string, boolean> = {};
     participants.forEach((p) => {
-      if (!p.coords) return;
+      if (!p.lat || !p.lng) return;
       const key = `p-${p.id}`;
-      upsertMarker(key, p.coords, `<b>${p.name}</b>`, { color: "#1E90FF", avatarUrl: p.avatarUrl || undefined });
+      const coords = { lat: p.lat, lon: p.lng };
+      upsertMarker(key, coords, `<b>${p.name}</b>`, { color: "#1E90FF", avatarUrl: p.avatarUrl || undefined });
       seen[key] = true;
     });
     // cleanup stale participant markers
@@ -222,10 +228,10 @@ export default function TomTomMapController({
     // optionally fit bounds
     if (fitBounds && ttMapRef.current) {
       const map = ttMapRef.current;
-      const bounds = new tt.LngLatBounds();
+      const bounds = new (sdkRef.current.default.LngLatBounds)();
       let added = false;
       participants.forEach((p) => {
-        if (p.coords) { bounds.extend([p.coords.lon, p.coords.lat]); added = true; }
+         if (p.lat && p.lng) { bounds.extend([p.lng, p.lat]); added = true; }
       });
       if (origin?.coords) { bounds.extend([origin.coords.lon, origin.coords.lat]); added = true; }
       if (destination?.coords) { bounds.extend([destination.coords.lon, destination.coords.lat]); added = true; }
@@ -245,6 +251,7 @@ export default function TomTomMapController({
 
     if (origin?.coords) upsertMarker("origin", origin.coords, `<b>Origin</b><div>${origin.label || ""}</div>`, { color: "#2ECC71" });
     if (destination?.coords) upsertMarker("destination", destination.coords, `<b>Destination</b><div>${destination.label || ""}</div>`, { color: "#E74C3C" });
+    const TOMTOM_KEY = process.env.NEXT_PUBLIC_TOMTOM_KEY;
 
     async function fetchAndDrawRoute() {
       if (!origin?.coords || !destination?.coords) {
@@ -310,7 +317,7 @@ export default function TomTomMapController({
             paint: { "line-color": "#3b82f6", "line-width": 5 },
           });
           try {
-            const bounds = coordinates.reduce((b: any, c: any) => b.extend(c), new tt.LngLatBounds(coordinates[0], coordinates[0]));
+            const bounds = coordinates.reduce((b: any, c: any) => b.extend(c), new (sdkRef.current.default.LngLatBounds)(coordinates[0], coordinates[0]));
             map.fitBounds(bounds, { padding: 80, duration: 500, maxZoom: 15 });
           } catch (e) {}
         }
@@ -327,8 +334,7 @@ export default function TomTomMapController({
 
   return (
     <div className={className} style={{ position: "relative", width: "100%", height: "100%", ...(style || {}) }}>
-       {!TOMTOM_KEY && <div className="absolute inset-0 z-10 p-2 text-sm text-red-700 bg-red-50 flex items-center justify-center text-center">TomTom API key missing. Add NEXT_PUBLIC_TOMTOM_API_KEY to your .env file and restart the dev server.</div>}
-      <div ref={mapRef} style={{ width: "100%", height: "100%" }} />
+       <div ref={mapRef} style={{ width: "100%", height: "100%" }} />
     </div>
   );
 }
