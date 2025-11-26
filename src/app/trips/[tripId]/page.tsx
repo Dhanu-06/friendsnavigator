@@ -26,6 +26,7 @@ import type { Participant } from '@/hooks/useTripRealtime';
 import useLiveLocation from '@/hooks/useLiveLocation';
 import { startSimulatedMovement } from '@/utils/demoLocationSimulator';
 import { getETAForParticipant } from '@/lib/getParticipantETA';
+import TempEmuCheck from '@/components/TempEmuCheck';
 
 
 export default function TripPage() {
@@ -192,6 +193,7 @@ export default function TripPage() {
 
   return (
     <div className="flex flex-col h-screen bg-gray-50 dark:bg-black">
+      <TempEmuCheck />
       <header className="flex-shrink-0 border-b bg-background">
         <div className="container mx-auto px-4 py-3">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
