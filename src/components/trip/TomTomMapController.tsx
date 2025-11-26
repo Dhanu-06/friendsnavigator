@@ -7,7 +7,6 @@ import tt from "@tomtom-international/web-sdk-maps";
 import SearchBox from "@tomtom-international/web-sdk-plugin-searchbox";
 
 const TOMTOM_KEY = process.env.NEXT_PUBLIC_TOMTOM_API_KEY;
-if (!TOMTOM_KEY) console.warn("TomTom key missing: set NEXT_PUBLIC_TOMTOM_API_KEY in .env.local");
 
 type LatLng = { lat: number; lon: number };
 
@@ -53,7 +52,7 @@ export default function TomTomMapController({
   useEffect(() => {
     if (!mapRef.current || typeof window === "undefined") return;
     if (!TOMTOM_KEY) {
-      console.error("TomTom API key not set");
+      console.error("TomTom API key not set. Add NEXT_PUBLIC_TOMTOM_API_KEY to your .env file.");
       return;
     }
     if (ttMapRef.current) {
@@ -328,7 +327,7 @@ export default function TomTomMapController({
 
   return (
     <div className={className} style={{ position: "relative", width: "100%", height: "100%", ...(style || {}) }}>
-       {!TOMTOM_KEY && <div className="absolute inset-0 z-10 p-2 text-sm text-red-700 bg-red-50 flex items-center justify-center text-center">TomTom API key missing. Add NEXT_PUBLIC_TOMTOM_API_KEY to .env file and restart dev server.</div>}
+       {!TOMTOM_KEY && <div className="absolute inset-0 z-10 p-2 text-sm text-red-700 bg-red-50 flex items-center justify-center text-center">TomTom API key missing. Add NEXT_PUBLIC_TOMTOM_API_KEY to your .env file and restart the dev server.</div>}
       <div ref={mapRef} style={{ width: "100%", height: "100%" }} />
     </div>
   );

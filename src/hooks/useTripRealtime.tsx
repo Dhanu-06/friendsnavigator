@@ -40,12 +40,14 @@ export default function useTripRealtime(tripId?: string) {
     if (!tripId) return;
 
     if (!useEmulator) {
-        console.warn('Realtime hook: Firestore emulator not enabled, using local fallback for all data.');
-        const t = getTripById(tripId);
-        if (t) {
-            setParticipants(t.participants ?? []);
-            setMessages(t.messages ?? []);
-            setExpenses(t.expenses ?? []);
+        if (typeof window !== 'undefined') {
+          console.warn('Realtime hook: Firestore emulator not enabled, using local fallback for all data.');
+          const t = getTripById(tripId);
+          if (t) {
+              setParticipants(t.participants ?? []);
+              setMessages(t.messages ?? []);
+              setExpenses(t.expenses ?? []);
+          }
         }
         return;
     }

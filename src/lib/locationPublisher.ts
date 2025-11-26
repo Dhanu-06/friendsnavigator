@@ -40,8 +40,7 @@ export async function publishParticipantLocation(tripId: string, user: User, coo
   };
 
   if (!useEmulator) {
-     console.warn("publishParticipantLocation: Firestore emulator not enabled, using localStorage fallback.");
-     // Fallback logic is handled by useTripRealtime hook. We just won't throw an error.
+     // The realtime hook will manage the local state, so we don't need to write to localStorage here.
      return { source: "local" };
   }
 
@@ -51,8 +50,7 @@ export async function publishParticipantLocation(tripId: string, user: User, coo
     return { source: "firestore" };
   } catch (err) {
     console.warn("publishParticipantLocation: Firestore write failed. The useTripRealtime hook will handle local storage fallback.", err);
-    // The realtime hook will manage the local state, so we don't need to write to localStorage here.
-    // We throw the error so the caller knows the write failed.
+    // Throw the error so the caller knows the write failed, allowing the UI to react if needed.
     throw err;
   }
 }
