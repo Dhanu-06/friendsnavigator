@@ -1,7 +1,7 @@
 // src/hooks/useTripRealtime.tsx
 'use client';
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { initializeFirebase } from '@/firebase';
+import { getFirebaseInstances } from '@/lib/firebaseClient';
 import {
   collection,
   doc,
@@ -29,8 +29,7 @@ export type Participant = {
 
 const useEmulator = process.env.NEXT_PUBLIC_USE_FIREBASE_EMULATOR === 'true';
 // Get the firestore instance from the single source of truth.
-// This is safe because initializeFirebase is idempotent.
-const { firestore: db } = initializeFirebase();
+const { firestore: db } = getFirebaseInstances();
 
 
 export default function useTripRealtime(tripId?: string) {

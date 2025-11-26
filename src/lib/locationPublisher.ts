@@ -1,10 +1,10 @@
 'use client';
 
-import { initializeFirebase } from '@/firebase';
+import { getFirebaseInstances } from '@/lib/firebaseClient';
 import { doc, setDoc, serverTimestamp, type Firestore } from 'firebase/firestore';
 
 const useEmulator = process.env.NEXT_PUBLIC_USE_FIREBASE_EMULATOR === 'true';
-const { firestore: db } = initializeFirebase();
+const { firestore: db } = getFirebaseInstances();
 
 type Coords = {
     lat: number;
