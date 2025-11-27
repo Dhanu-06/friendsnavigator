@@ -57,8 +57,8 @@ export default function TripRoomClient({
     }, {} as Record<string, Participant & { lat: number; lng: number }>);
   }, [participants]);
 
-  const handleParticipantETA = useCallback((id: string, data: { etaSeconds: number; distanceMeters: number }) => {
-    setParticipantETAs((prev) => ({ ...prev, [id]: data }));
+  const handleParticipantETA = useCallback((id: string, data: { etaSeconds: number | null, distanceMeters: number | null }) => {
+    setParticipantETAs((prev) => ({ ...prev, [id]: data as { etaSeconds: number; distanceMeters: number; } }));
   }, []);
 
   const currentUserParticipant = useMemo(() => {
