@@ -11,10 +11,11 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Users, LocateFixed, Car, TramFront, CircleHelp } from 'lucide-react';
+import { Users, LocateFixed, CircleHelp, Car, TramFront } from 'lucide-react';
 import { ScrollArea } from '../ui/scroll-area';
-import { Separator } from '../ui/separator';
+import { useReverseGeocode } from '@/hooks/useReverseGeocode';
 import RideButton from './RideButton';
+
 
 // Dynamic import prevents SSR rendering of map controller
 const TomTomMapController = dynamic(
@@ -99,11 +100,11 @@ export default function TripRoomClient({ tripId, currentUser, initialTrip = null
   const friendsETAList = useMemo(() => {
     return Object.values(participantsForMap)
       .map((p) => {
-        const e = participantETAs[p.id] || { etaSeconds: null, distanceMeters: null };
+        const e = participantETAs[p.id];
         return {
           ...p,
-          etaSeconds: e.etaSeconds,
-          distanceMeters: e.distanceMeters,
+          etaSeconds: e?.etaSeconds ?? null,
+          distanceMeters: e?.distanceMeters ?? null,
         };
       })
       .sort((a, b) => {
@@ -143,8 +144,17 @@ export default function TripRoomClient({ tripId, currentUser, initialTrip = null
     setTimeout(() => setFollowId(null), 3000);
   }
   
-  const pickup = lastPosition ? { lat: lastPosition.lat, lng: lastPosition.lng, name: 'My Location' } : undefined;
-  const drop = tripMeta?.destination ? { lat: tripMeta.destination.lat, lng: tripMeta.destination.lng, name: tripMeta.destination.name } : undefined;
+  const pickupLat = lastPosition?.lat;
+  const pickupLng = lastPosition?.lng;
+  const dropLat = tripMeta?.destination?.lat;
+  const dropLng = tripMeta?.destination?.lng;
+
+  const pickupName = useReverseGeocode(pickupLat, pickupLng);
+  const dropName = useReverseGeocode(dropLat, dropLng);
+
+  const pickup = pickupLat && pickupLng ? { lat: pickupLat, lng: pickupLng, name: pickupName || 'Current Location' } : undefined;
+  const drop = dropLat && dropLng ? { lat: dropLat, lng: dropLng, name: dropName || tripMeta?.destination?.name || 'Destination' } : undefined;
+
 
   // ----------------------------
   // Render
@@ -188,7 +198,7 @@ export default function TripRoomClient({ tripId, currentUser, initialTrip = null
                             <div className="flex-1">
                                 <div className="font-semibold">{p.name || 'Unnamed'}</div>
                                 <div className="text-xs text-muted-foreground">
-                                {eta && eta.distanceMeters ? `${(eta.distanceMeters / 1000).toFixed(1)} km • ${formatETA(eta.etaSeconds)}` : 'Calculating ETA...'}
+                                {eta && typeof eta.distanceMeters === 'number' ? `${(eta.distanceMeters / 1000).toFixed(1)} km • ${formatETA(eta.etaSeconds)}` : 'Calculating ETA...'}
                                 </div>
                             </div>
                             <Button size="icon" variant="ghost" onClick={() => handleFollow(p.id)}>
@@ -205,10 +215,10 @@ export default function TripRoomClient({ tripId, currentUser, initialTrip = null
           <h5 className="mb-2 font-semibold text-sm">Book a Ride</h5>
            {pickup && drop ? (
             <div className="grid grid-cols-2 gap-2">
-              <RideButton provider="uber" pickup={pickup} drop={drop}>Uber</RideButton>
-              <RideButton provider="ola" pickup={pickup} drop={drop}>Ola</RideButton>
-              <RideButton provider="rapido" pickup={pickup} drop={drop}>Rapido</RideButton>
-              <RideButton provider="transit" pickup={pickup} drop={drop} />
+              <RideButton provider="uber" pickup={pickup} drop={drop}><Car className="mr-2 h-4 w-4" />Uber</RideButton>
+              <RideButton provider="ola" pickup={pickup} drop={drop}><Car className="mr-2 h-4 w-4" />Ola</RideButton>
+              <RideButton provider="rapido" pickup={pickup} drop={drop}><Car className="mr-2 h-4 w-4" />Rapido</RideButton>
+              <RideButton provider="transit" pickup={pickup} drop={drop}><TramFront className="mr-2 h-4 w-4" />Transit</RideButton>
             </div>
            ) : (
              <div className="text-xs text-muted-foreground flex items-center gap-2">
