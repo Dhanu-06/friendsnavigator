@@ -11,8 +11,10 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Users, LocateFixed } from 'lucide-react';
+import { Users, LocateFixed, Car, TramFront, CircleHelp } from 'lucide-react';
 import { ScrollArea } from '../ui/scroll-area';
+import { Separator } from '../ui/separator';
+import RideButton from './RideButton';
 
 // Dynamic import prevents SSR rendering of map controller
 const TomTomMapController = dynamic(
@@ -51,7 +53,7 @@ export default function TripRoomClient({ tripId, currentUser, initialTrip = null
   // Data Fetching
   // ----------------------------
   const { participants: realtimeParticipants, status } = useTripRealtime(tripId);
-  useLiveLocation(tripId, currentUser ?? { id: "anon", name: "Guest" }, { watchIntervalMs: 5000, enableWatch: true });
+  const { lastPosition } = useLiveLocation(tripId, currentUser ?? { id: "anon", name: "Guest" }, { watchIntervalMs: 5000, enableWatch: true });
   const [tripMeta, setTripMeta] = useState<any>(initialTrip);
 
 
@@ -140,6 +142,9 @@ export default function TripRoomClient({ tripId, currentUser, initialTrip = null
     setFollowId(id);
     setTimeout(() => setFollowId(null), 3000);
   }
+  
+  const pickup = lastPosition ? { lat: lastPosition.lat, lng: lastPosition.lng, name: 'My Location' } : undefined;
+  const drop = tripMeta?.destination ? { lat: tripMeta.destination.lat, lng: tripMeta.destination.lng, name: tripMeta.destination.name } : undefined;
 
   // ----------------------------
   // Render
@@ -165,7 +170,7 @@ export default function TripRoomClient({ tripId, currentUser, initialTrip = null
             </CardTitle>
         </CardHeader>
         <CardContent className="p-0 flex-1">
-            <ScrollArea className="h-full pr-4">
+            <ScrollArea className="h-[calc(100%-120px)] pr-4">
                 <div className="space-y-3">
                 {status === 'connecting' ? (
                     Array.from({length: 3}).map((_, i) => <Skeleton key={i} className="h-16 w-full" />)
@@ -183,7 +188,7 @@ export default function TripRoomClient({ tripId, currentUser, initialTrip = null
                             <div className="flex-1">
                                 <div className="font-semibold">{p.name || 'Unnamed'}</div>
                                 <div className="text-xs text-muted-foreground">
-                                {eta ? `${(eta.distanceMeters! / 1000).toFixed(1)} km • ${formatETA(eta.etaSeconds)}` : 'Calculating ETA...'}
+                                {eta && eta.distanceMeters ? `${(eta.distanceMeters / 1000).toFixed(1)} km • ${formatETA(eta.etaSeconds)}` : 'Calculating ETA...'}
                                 </div>
                             </div>
                             <Button size="icon" variant="ghost" onClick={() => handleFollow(p.id)}>
@@ -196,6 +201,22 @@ export default function TripRoomClient({ tripId, currentUser, initialTrip = null
                 </div>
             </ScrollArea>
         </CardContent>
+        <div className="mt-auto pt-4 border-t">
+          <h5 className="mb-2 font-semibold text-sm">Book a Ride</h5>
+           {pickup && drop ? (
+            <div className="grid grid-cols-2 gap-2">
+              <RideButton provider="uber" pickup={pickup} drop={drop}>Uber</RideButton>
+              <RideButton provider="ola" pickup={pickup} drop={drop}>Ola</RideButton>
+              <RideButton provider="rapido" pickup={pickup} drop={drop}>Rapido</RideButton>
+              <RideButton provider="transit" pickup={pickup} drop={drop} />
+            </div>
+           ) : (
+             <div className="text-xs text-muted-foreground flex items-center gap-2">
+               <CircleHelp className="h-4 w-4" />
+               <span>Enable location to book a ride.</span>
+             </div>
+           )}
+        </div>
       </aside>
     </div>
   );
