@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
@@ -93,6 +94,8 @@ export default function TripRoomClient({
       <div className="flex-1 min-h-[360px] md:min-h-full relative">
         <TomTomMapController
           participants={participantsById}
+          origin={pickup}
+          destination={drop}
           computeRoutes={true}
           onParticipantETA={handleParticipantETA}
           followId={followId}

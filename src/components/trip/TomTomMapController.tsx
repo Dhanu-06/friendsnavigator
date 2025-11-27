@@ -1,9 +1,12 @@
+
 import React, { useEffect, useRef, useState } from "react";
 
 /*
 TomTomMapController.tsx
 Client-only, SSR-safe TomTom map controller for Next.js App Router.
 */
+
+type Coords = { lat: number; lng: number };
 
 type Participant = {
   id: string;
@@ -14,6 +17,8 @@ type Participant = {
 
 type Props = {
   participants: Record<string, Participant>;
+  origin?: Coords | null;
+  destination?: Coords | null;
   computeRoutes?: boolean;
   onParticipantETA?: (id: string, data: { etaSeconds: number | null; distanceMeters: number | null }) => void;
   followId?: string | null;
@@ -24,9 +29,13 @@ type Props = {
 
 const TOMTOM_CSS = "https://api.tomtom.com/maps-sdk-for-web/6.x/6.31.0/maps/maps.css";
 const TOMTOM_JS = "https://api.tomtom.com/maps-sdk-for-web/6.x/6.31.0/maps/maps-web.min.js";
+const ROUTE_SOURCE_ID = 'tt-route-source';
+const ROUTE_LAYER_ID = 'tt-route-layer';
 
 export default function TomTomMapController({
   participants,
+  origin,
+  destination,
   computeRoutes = false,
   onParticipantETA,
   followId = null,
@@ -42,6 +51,72 @@ export default function TomTomMapController({
   const pollIntervalRef = useRef<number | null>(null);
 
   const TOMTOM_KEY = (process.env.NEXT_PUBLIC_TOMTOM_KEY as string) || "";
+
+  // Helper to remove existing route
+  function removeRouteLayer(map: any) {
+    try {
+      if (!map) return;
+      if (map.getLayer && map.getLayer(ROUTE_LAYER_ID)) {
+        map.removeLayer(ROUTE_LAYER_ID);
+      }
+      if (map.getSource && map.getSource(ROUTE_SOURCE_ID)) {
+        map.removeSource(ROUTE_SOURCE_ID);
+      }
+    } catch (e) { /* ignore */ }
+  }
+
+  // Draw geojson LineString on the map
+  function drawGeoJsonRoute(map: any, geojson: any) {
+    if (!map || !geojson || !geojson.coordinates || !Array.isArray(geojson.coordinates)) return;
+    removeRouteLayer(map);
+    try {
+      map.addSource(ROUTE_SOURCE_ID, {
+        type: 'geojson',
+        data: { type: 'Feature', geometry: { type: 'LineString', coordinates: geojson.coordinates } }
+      });
+
+      map.addLayer({
+        id: ROUTE_LAYER_ID,
+        type: 'line',
+        source: ROUTE_SOURCE_ID,
+        layout: { 'line-join': 'round', 'line-cap': 'round' },
+        paint: {
+          'line-color': '#1E90FF',
+          'line-width': 6,
+          'line-opacity': 0.95
+        }
+      });
+
+      // fit bounds
+      try {
+        const lats = geojson.coordinates.map((c: any) => c[1]);
+        const lons = geojson.coordinates.map((c: any) => c[0]);
+        const sw = [Math.min(...lons), Math.min(...lats)];
+        const ne = [Math.max(...lons), Math.max(...lats)];
+        map.fitBounds([sw, ne], { padding: 60, linear: true });
+      } catch (e) { /* ignore */ }
+    } catch (e) {
+      // some SDK versions require addSource with existing name handling; just ignore errors
+    }
+  }
+
+  // Call server route API and draw
+  async function fetchAndDrawRoute(origin: Coords, destination: Coords) {
+    if (!ttMapRef.current) return;
+    try {
+      const res = await fetch('/api/route', {
+        method: 'POST',
+        headers: { 'Content-Type':'application/json' },
+        body: JSON.stringify({ origin, destination })
+      });
+      if (!res.ok) return;
+      const json = await res.json();
+      if (json && json.geojson && json.geojson.coordinates) {
+        drawGeoJsonRoute(ttMapRef.current, json.geojson);
+      }
+    } catch (e) {}
+  }
+
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -82,6 +157,7 @@ export default function TomTomMapController({
       });
       if (ttMapRef.current) {
         try {
+          removeRouteLayer(ttMapRef.current);
           ttMapRef.current.remove();
         } catch (e) {}
       }
@@ -237,6 +313,18 @@ export default function TomTomMapController({
     return () => stopPolling();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [computeRoutes, isReady, participants]);
+  
+  useEffect(() => {
+    if (!isReady || !ttMapRef.current) return;
+    if (!computeRoutes) {
+      removeRouteLayer(ttMapRef.current);
+      return;
+    }
+    if (origin && destination) {
+      fetchAndDrawRoute(origin, destination);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isReady, computeRoutes, origin?.lat, origin?.lng, destination?.lat, destination?.lng]);
 
   function startPolling() {
     if (pollIntervalRef.current) return;
