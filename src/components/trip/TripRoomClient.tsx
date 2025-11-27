@@ -11,10 +11,13 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Users, LocateFixed, CircleHelp, Car, TramFront } from 'lucide-react';
+import { Users, LocateFixed, CircleHelp, Car, TramFront, MessagesSquare, Receipt } from 'lucide-react';
 import { ScrollArea } from '../ui/scroll-area';
 import { useReverseGeocode } from '@/hooks/useReverseGeocode';
 import RideButton from './RideButton';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { ChatBox } from './ChatBox';
+import { ExpenseCalculator } from './ExpenseCalculator';
 
 
 // Dynamic import prevents SSR rendering of map controller
@@ -53,7 +56,7 @@ export default function TripRoomClient({ tripId, currentUser, initialTrip = null
   // ----------------------------
   // Data Fetching
   // ----------------------------
-  const { participants: realtimeParticipants, status } = useTripRealtime(tripId);
+  const { participants: realtimeParticipants, messages, expenses, status, sendMessage, addExpense } = useTripRealtime(tripId);
   const { lastPosition } = useLiveLocation(tripId, currentUser ?? { id: "anon", name: "Guest" }, { watchIntervalMs: 5000, enableWatch: true });
   const [tripMeta, setTripMeta] = useState<any>(initialTrip);
 
@@ -114,6 +117,16 @@ export default function TripRoomClient({ tripId, currentUser, initialTrip = null
       });
   }, [participantsForMap, participantETAs]);
 
+  const chatMessages = useMemo(() => {
+    return (messages || []).map(msg => ({
+      id: msg.id,
+      userName: msg.senderId === currentUser?.id ? 'You' : msg.userName,
+      text: msg.text,
+      timestamp: msg.createdAt ? new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit'}) : '',
+      avatarUrl: msg.avatarUrl
+    })).sort((a,b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+  }, [messages, currentUser?.id]);
+
 
   // ----------------------------
   // Callbacks & Effects
@@ -121,6 +134,20 @@ export default function TripRoomClient({ tripId, currentUser, initialTrip = null
   const handleParticipantETA = useCallback((id: string, data: { etaSeconds: number | null; distanceMeters: number | null }) => {
     setParticipantETAs(prev => ({ ...prev, [id]: data }));
   }, []);
+
+  const handleSendMessage = (text: string) => {
+    if(!currentUser) return;
+    sendMessage({
+        senderId: currentUser.id,
+        userName: currentUser.name,
+        avatarUrl: currentUser.avatar || `https://i.pravatar.cc/150?u=${currentUser.id}`,
+        text
+    });
+  }
+
+  const handleAddExpense = (newExpense: Omit<typeof expenses[0], 'id'>) => {
+    addExpense(newExpense);
+  }
 
   useEffect(() => {
     if (currentUser) {
@@ -173,61 +200,81 @@ export default function TripRoomClient({ tripId, currentUser, initialTrip = null
       </div>
 
       {/* Right: Sidebar */}
-      <aside className="w-80 border-l p-4 bg-background flex flex-col">
-        <CardHeader className="p-2">
-            <CardTitle className="flex items-center gap-2 text-lg">
-                <Users className="text-primary" /> Participants ({friendsETAList.length})
-            </CardTitle>
-        </CardHeader>
-        <CardContent className="p-0 flex-1">
-            <ScrollArea className="h-[calc(100%-120px)] pr-4">
-                <div className="space-y-3">
-                {status === 'connecting' ? (
-                    Array.from({length: 3}).map((_, i) => <Skeleton key={i} className="h-16 w-full" />)
-                ) : friendsETAList.length === 0 ? (
-                    <div className="text-center text-muted-foreground p-8">Waiting for participant locations...</div>
+      <aside className="w-96 border-l bg-background flex flex-col">
+        <Tabs defaultValue="participants" className="flex-1 flex flex-col">
+          <TabsList className="grid w-full grid-cols-3 rounded-none">
+            <TabsTrigger value="participants"><Users className="h-4 w-4 mr-2" />Participants</TabsTrigger>
+            <TabsTrigger value="chat"><MessagesSquare className="h-4 w-4 mr-2"/>Chat</TabsTrigger>
+            <TabsTrigger value="expenses"><Receipt className="h-4 w-4 mr-2"/>Expenses</TabsTrigger>
+          </TabsList>
+          
+          <TabsContent value="participants" className="flex-1 flex flex-col p-4">
+              <ScrollArea className="flex-1">
+                  <div className="space-y-3 pr-4">
+                  {status === 'connecting' ? (
+                      Array.from({length: 3}).map((_, i) => <Skeleton key={i} className="h-16 w-full" />)
+                  ) : friendsETAList.length === 0 ? (
+                      <div className="text-center text-muted-foreground p-8">Waiting for participant locations...</div>
+                  ) : (
+                      friendsETAList.map((p) => {
+                      const eta = participantETAs[p.id];
+                      return (
+                          <Card key={p.id} className="p-3 flex items-center gap-3">
+                              <Avatar>
+                                  <AvatarImage src={p.avatarUrl} alt={p.name} />
+                                  <AvatarFallback>{p.name?.slice(0,2).toUpperCase()}</AvatarFallback>
+                              </Avatar>
+                              <div className="flex-1">
+                                  <div className="font-semibold">{p.name || 'Unnamed'}</div>
+                                  <div className="text-xs text-muted-foreground">
+                                  {eta && typeof eta.distanceMeters === 'number' ? `${(eta.distanceMeters / 1000).toFixed(1)} km • ${formatETA(eta.etaSeconds)}` : 'Calculating ETA...'}
+                                  </div>
+                              </div>
+                              <Button size="icon" variant="ghost" onClick={() => handleFollow(p.id)}>
+                                  <LocateFixed className="h-4 w-4" />
+                              </Button>
+                          </Card>
+                      );
+                      })
+                  )}
+                  </div>
+              </ScrollArea>
+               <div className="mt-auto pt-4 border-t">
+                <h5 className="mb-2 font-semibold text-sm">Book a Ride</h5>
+                {pickup && drop ? (
+                  <div className="grid grid-cols-2 gap-2">
+                    <RideButton provider="uber" pickup={pickup} drop={drop} />
+                    <RideButton provider="ola" pickup={pickup} drop={drop} />
+                    <RideButton provider="rapido" pickup={pickup} drop={drop} />
+                    <RideButton provider="transit" pickup={pickup} drop={drop} />
+                  </div>
                 ) : (
-                    friendsETAList.map((p) => {
-                    const eta = participantETAs[p.id];
-                    return (
-                        <Card key={p.id} className="p-3 flex items-center gap-3">
-                            <Avatar>
-                                <AvatarImage src={p.avatarUrl} alt={p.name} />
-                                <AvatarFallback>{p.name?.slice(0,2).toUpperCase()}</AvatarFallback>
-                            </Avatar>
-                            <div className="flex-1">
-                                <div className="font-semibold">{p.name || 'Unnamed'}</div>
-                                <div className="text-xs text-muted-foreground">
-                                {eta && typeof eta.distanceMeters === 'number' ? `${(eta.distanceMeters / 1000).toFixed(1)} km • ${formatETA(eta.etaSeconds)}` : 'Calculating ETA...'}
-                                </div>
-                            </div>
-                            <Button size="icon" variant="ghost" onClick={() => handleFollow(p.id)}>
-                                <LocateFixed className="h-4 w-4" />
-                            </Button>
-                        </Card>
-                    );
-                    })
+                  <div className="text-xs text-muted-foreground flex items-center gap-2">
+                    <CircleHelp className="h-4 w-4" />
+                    <span>Enable location to book a ride.</span>
+                  </div>
                 )}
-                </div>
-            </ScrollArea>
-        </CardContent>
-        <div className="mt-auto pt-4 border-t">
-          <h5 className="mb-2 font-semibold text-sm">Book a Ride</h5>
-           {pickup && drop ? (
-            <div className="grid grid-cols-2 gap-2">
-              <RideButton provider="uber" pickup={pickup} drop={drop}><Car className="mr-2 h-4 w-4" />Uber</RideButton>
-              <RideButton provider="ola" pickup={pickup} drop={drop}><Car className="mr-2 h-4 w-4" />Ola</RideButton>
-              <RideButton provider="rapido" pickup={pickup} drop={drop}><Car className="mr-2 h-4 w-4" />Rapido</RideButton>
-              <RideButton provider="transit" pickup={pickup} drop={drop}><TramFront className="mr-2 h-4 w-4" />Transit</RideButton>
-            </div>
-           ) : (
-             <div className="text-xs text-muted-foreground flex items-center gap-2">
-               <CircleHelp className="h-4 w-4" />
-               <span>Enable location to book a ride.</span>
-             </div>
-           )}
-        </div>
+              </div>
+          </TabsContent>
+
+          <TabsContent value="chat" className="m-0 flex-1">
+            <ChatBox messages={chatMessages} onSendMessage={handleSendMessage} />
+          </TabsContent>
+          
+          <TabsContent value="expenses" className="m-0 flex-1 p-4">
+             <ScrollArea className='h-full'>
+                <ExpenseCalculator 
+                  participants={realtimeParticipants} 
+                  expenses={expenses} 
+                  onAddExpense={handleAddExpense} 
+                />
+             </ScrollArea>
+          </TabsContent>
+
+        </Tabs>
       </aside>
     </div>
   );
 }
+
+    
