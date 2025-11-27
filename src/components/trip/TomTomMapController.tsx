@@ -1,264 +1,352 @@
-// src/components/trip/TomTomMapController.tsx
+
 "use client";
 
-import React, { useEffect, useMemo, useRef } from "react";
+import React, { useEffect, useRef, useState } from "react";
 
-type LatLng = { lat: number; lon: number };
-type Participant = { id: string; name?: string; avatar?: string | null; coords?: LatLng; lat?: number; lng?: number; };
+/*
+TomTomMapController.tsx
+
+Client-only, SSR-safe TomTom map controller for Next.js App Router.
+
+Props:
+ - participants: Record<string, { id:string; name:string; lat:number; lng:number }>
+ - computeRoutes?: boolean (when true, component polls /api/matrix-eta every 5s)
+ - onParticipantETA?: (id: string, data: { etaSeconds: number; distanceMeters: number }) => void
+ - followId?: string | null  (optional participant id to follow/center map on)
+ - className?: string (optional wrapper className)
+
+Notes:
+ - Requires a client-exposed environment variable: NEXT_PUBLIC_TOMTOM_KEY
+ - The component dynamically injects TomTom's <link> and <script>, so there are NO SSR imports.
+ - Marker animation is implemented via linear interpolation and requestAnimationFrame.
+*/
+
+type Participant = {
+  id: string;
+  name: string;
+  lat: number;
+  lng: number;
+};
 
 type Props = {
-  origin?: any;
-  destination?: any;
-  participants?: Participant[] | Record<string, Participant>;
-  // If true, the controller will call /api/matrix-eta for ETAs and show them on popups
+  participants: Record<string, Participant>;
   computeRoutes?: boolean;
-  // called when ETA for a participant is known: (id, {etaSeconds, distanceMeters})
-  onParticipantETA?: (id: string, info: { etaSeconds: number | null; distanceMeters: number | null }) => void;
-  style?: React.CSSProperties;
+  onParticipantETA?: (id: string, data: { etaSeconds: number | null; distanceMeters: number | null }) => void;
   followId?: string | null;
-  initialCenter?: { lat: number, lng: number };
+  className?: string;
+  initialCenter?: { lat: number; lng: number };
   initialZoom?: number;
 };
 
-/**
- * TomTomMapController
- *
- * - Dynamically loads TomTom Web SDK at runtime (client-only).
- * - Creates markers for participants and smoothly interpolates them.
- * - Periodically queries /api/matrix-eta for travel times to destination (if computeRoutes=true).
- *
- * Notes:
- * - Requires NEXT_TOMTOM_KEY server env for server routes;
- *   for client map tiles the controller reads NEXT_PUBLIC_TOMTOM_KEY if set.
- * - Avoids SSR import to prevent `self is not defined` errors.
- */
-
-function ensureTomTomScript(): Promise<void> {
-  // If already loaded
-  // @ts-ignore
-  if (typeof window !== "undefined" && (window as any).tt && (window as any).tt.map) {
-    return Promise.resolve();
-  }
-
-  const existing = document.querySelector('script[data-tt-sdk="true"]') as HTMLScriptElement | null;
-  if (existing) {
-    return new Promise((res) => {
-      existing.addEventListener("load", () => res());
-      existing.addEventListener("error", () => res());
-    });
-  }
-
-  // Insert CSS (safe to insert duplicate; browser ignores duplicates)
-  const cssHref =
-    "https://api.tomtom.com/maps-sdk-for-web/cdn/6.x/6.15.0/maps/maps.css"; // CDN CSS (works with many TomTom SDK versions)
-  if (!document.querySelector(`link[href="${cssHref}"]`)) {
-    const l = document.createElement("link");
-    l.rel = "stylesheet";
-    l.href = cssHref;
-    document.head.appendChild(l);
-  }
-
-  // Insert script tag
-  return new Promise((resolve, reject) => {
-    const s = document.createElement("script");
-    s.setAttribute("data-tt-sdk", "true");
-    // A common public CDN path; if your environment needs a different version, you can change this.
-    s.src = "https://api.tomtom.com/maps-sdk-for-web/cdn/6.x/6.15.0/maps/maps-web.min.js";
-    s.async = true;
-    s.defer = true;
-    s.onload = () => {
-      // small delay to ensure tt is registered
-      setTimeout(() => resolve(), 50);
-    };
-    s.onerror = (e) => reject(e);
-    document.head.appendChild(s);
-  });
-}
-
-function latLonToArray(c?: LatLng) {
-  if (!c) return undefined;
-  // TomTom expects [lon, lat] in some APIs; for map marker we use {lat, lng}
-  return { lat: c.lat, lng: c.lon };
-}
+const TOMTOM_CSS = "https://api.tomtom.com/maps-sdk-for-web/6.x/6.31.0/maps/maps.css";
+const TOMTOM_JS = "https://api.tomtom.com/maps-sdk-for-web/6.x/6.31.0/maps/maps-web.min.js";
 
 export default function TomTomMapController({
-  origin,
-  destination,
-  participants: participantsProp = [],
+  participants,
   computeRoutes = false,
   onParticipantETA,
-  style,
-  followId,
+  followId = null,
+  className,
   initialCenter = { lat: 12.9716, lng: 77.5946 },
   initialZoom = 12,
 }: Props) {
-  const containerRef = useRef<HTMLDivElement | null>(null);
-  const mapRef = useRef<any>(null);
+  const mapRef = useRef<HTMLDivElement | null>(null);
+  const ttMapRef = useRef<any>(null);
   const markersRef = useRef<Map<string, any>>(new Map());
-  const popupRef = useRef<Map<string, any>>(new Map());
-  const animationRefs = useRef<Map<string, number>>(new Map());
-  const matrixTimerRef = useRef<number | null>(null);
+  const rafHandlesRef = useRef<Map<string, number>>(new Map());
+  const [isReady, setIsReady] = useState(false);
+  const pollIntervalRef = useRef<number | null>(null);
 
-  const participants = useMemo(() => {
-    return Array.isArray(participantsProp) ? participantsProp : Object.values(participantsProp);
-  }, [participantsProp]);
+  const TOMTOM_KEY = (process.env.NEXT_PUBLIC_TOMTOM_KEY as string) || "";
 
-  // Smoothly move marker from start to end in ms duration
-  function animateMarker(marker: any, from: { lat: number; lng: number }, to: { lat: number; lng: number }, duration = 900) {
-    // cancel previous animation
-    const prev = animationRefs.current.get(marker._id || marker.getElement()?.dataset?.id ?? "");
-    if (prev) cancelAnimationFrame(prev);
+  useEffect(() => {
+    if (typeof window === "undefined") return; // SSR guard
 
-    const start = performance.now();
-    function step(now: number) {
-      const t = Math.min(1, (now - start) / duration);
-      // simple linear interpolation
-      const lat = from.lat + (to.lat - from.lat) * t;
-      const lng = from.lng + (to.lng - from.lng) * t;
-      try {
-        marker.setLngLat([lng, lat]);
-      } catch (e) {
-        // ignore
-      }
-      if (t < 1) {
-        const raf = requestAnimationFrame(step);
-        animationRefs.current.set(marker._id || marker.getElement()?.dataset?.id ?? "", raf);
-      } else {
-        animationRefs.current.delete(marker._id || marker.getElement()?.dataset?.id ?? "");
-      }
+    // inject CSS
+    if (!document.querySelector(`link[data-tt-css]`)) {
+      const link = document.createElement("link");
+      link.setAttribute("rel", "stylesheet");
+      link.setAttribute("href", TOMTOM_CSS);
+      link.setAttribute("data-tt-css", "");
+      document.head.appendChild(link);
     }
-    requestAnimationFrame(step);
-  }
 
-  // Upsert marker for participant
-  function upsertParticipantMarker(tt: any, p: Participant) {
-    const lat = p.coords?.lat ?? p.lat;
-    const lon = p.coords?.lon ?? p.lng;
-    if (typeof lat !== 'number' || typeof lon !== 'number') return;
-    
-    const id = p.id;
-    const existing = markersRef.current.get(id);
-    const latlng = { lat: lat, lng: lon };
-    if (existing) {
-      // animate to new pos
-      try {
-        const current = existing.getLngLat ? existing.getLngLat() : { lat: latlng.lat, lng: latlng.lng };
-        animateMarker(existing, { lat: current.lat, lng: current.lng }, latlng, 1200);
-      } catch {
-        existing.setLngLat([latlng.lng, latlng.lat]);
-      }
-      // update popup content (name)
-      const pop = popupRef.current.get(id);
-      if (pop) {
-         const currentHTML = pop.getElement().innerHTML;
-         if (!currentHTML.includes(p.name || 'Friend')) {
-            pop.setHTML(`<div style="font-weight:700">${p.name ?? "Friend"}</div><div style="font-size:12px">Updating…</div>`);
-         }
+    // inject JS
+    if (!(window as any).tt) {
+      if (!document.querySelector(`script[data-tt-sdk]`)) {
+        const s = document.createElement("script");
+        s.src = TOMTOM_JS;
+        s.async = true;
+        s.setAttribute("data-tt-sdk", "");
+        s.onload = () => {
+          initMapOnce();
+        };
+        document.body.appendChild(s);
+      } else {
+        // script exists but tt might not be ready yet
+        const existing = document.querySelector(`script[data-tt-sdk]`);
+        existing!.addEventListener("load", () => initMapOnce());
       }
     } else {
-      // create a DOM element for marker (circle with initials)
-      const el = document.createElement("div");
-      el.className = "tt-marker";
-      el.style.width = "40px";
-      el.style.height = "40px";
-      el.style.borderRadius = "20px";
-      el.style.display = "flex";
-      el.style.alignItems = "center";
-      el.style.justifyContent = "center";
-      el.style.color = "#fff";
-      el.style.fontWeight = "700";
-      el.style.boxShadow = "0 2px 6px rgba(0,0,0,0.25)";
-      el.style.background = "#3b82f6";
-      el.style.border = "2px solid white";
-      el.dataset.id = id;
-
-      // initials
-      const initials = (p.name || p.id || "U").split(" ").map((s) => s[0]).slice(0, 2).join("").toUpperCase();
-      el.textContent = initials;
-
-      // create marker
-      const marker = new tt.Marker({ element: el }).setLngLat([latlng.lng, latlng.lat]).addTo(mapRef.current);
-      // store id on marker for animations
-      (marker as any)._id = id;
-      markersRef.current.set(id, marker);
-
-      // popup
-      const popupEl = document.createElement('div');
-      popupEl.innerHTML = `<div style="font-weight:700">${p.name ?? "Friend"}</div><div style="font-size:12px">ETA: —</div>`;
-      
-      const popup = new tt.Popup({ offset: 25 }).setDOMContent(popupEl);
-      popupRef.current.set(id, popup);
-      marker.setPopup(popup);
-
-      (marker as any).popupEl = popupEl;
+      // tt already loaded
+      initMapOnce();
     }
+
+    return () => {
+      // cleanup on unmount
+      stopPolling();
+      // remove rafs
+      rafHandlesRef.current.forEach((h) => cancelAnimationFrame(h));
+      // remove markers
+      markersRef.current.forEach((m) => {
+        try {
+          m.marker.remove();
+        } catch (e) {}
+      });
+      // remove map
+      if (ttMapRef.current) {
+        try {
+          ttMapRef.current.remove();
+        } catch (e) {}
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // initialize map once tt is available
+  function initMapOnce() {
+    if (!(window as any).tt) return;
+    if (!mapRef.current) return;
+    if (ttMapRef.current) return; // already inited
+
+    const tt = (window as any).tt;
+    const map = tt.map({
+      key: TOMTOM_KEY,
+      container: mapRef.current,
+      center: [initialCenter.lng, initialCenter.lat],
+      zoom: initialZoom,
+    });
+
+    // basic controls
+    map.addControl(new tt.NavigationControl());
+
+    ttMapRef.current = map;
+    setIsReady(true);
   }
 
-  // Remove markers not in participants
-  function cleanupMarkers(pIds: string[]) {
-    for (const [id, marker] of markersRef.current.entries()) {
-      if (!pIds.includes(id)) {
-        try {
-          marker.remove();
-        } catch {}
-        markersRef.current.delete(id);
-        const p = popupRef.current.get(id);
-        if (p) {
-          try {
-            p.remove();
-          } catch {}
+  // Manage markers when participants change
+  useEffect(() => {
+    if (!isReady || !ttMapRef.current) return;
+    const map = ttMapRef.current;
+
+    const existingIds = new Set(markersRef.current.keys());
+
+    // add/update markers
+    Object.values(participants).forEach((p) => {
+      existingIds.delete(p.id);
+      const existing = markersRef.current.get(p.id);
+      if (!existing) {
+        // create DOM element for marker
+        const el = document.createElement("div");
+        el.className = "tt-participant-marker";
+        el.style.width = "28px";
+        el.style.height = "28px";
+        el.style.borderRadius = "50%";
+        el.style.display = "flex";
+        el.style.justifyContent = "center";
+        el.style.alignItems = "center";
+        el.style.boxShadow = "0 2px 6px rgba(0,0,0,0.3)";
+        el.style.background = "white";
+        el.style.border = "2px solid #1E90FF";
+        el.style.fontSize = "12px";
+        el.style.fontWeight = "600";
+        el.style.color = "#1E90FF";
+        el.innerText = (p.name || "?").slice(0, 2).toUpperCase();
+
+        const marker = new (window as any).tt.Marker({ element: el }).setLngLat([p.lng, p.lat]).addTo(map);
+
+        // popup
+        const popupEl = document.createElement("div");
+        popupEl.className = "tt-popup-content";
+        popupEl.style.padding = "6px 8px";
+        popupEl.style.fontSize = "13px";
+        popupEl.innerText = `${p.name}`;
+
+        const popup = new (window as any).tt.Popup({ offset: 10 }).setDOMContent(popupEl);
+        marker.setPopup(popup);
+
+        markersRef.current.set(p.id, {
+          marker,
+          el,
+          popupEl,
+          current: { lat: p.lat, lng: p.lng },
+        });
+      } else {
+        // update target coordinates for animation
+        existing.target = { lat: p.lat, lng: p.lng };
+        // if marker has a popup, update name
+        if (existing.popupEl && existing.popupEl.innerText !== p.name) {
+          existing.popupEl.innerText = p.name;
         }
-        popupRef.current.delete(id);
+      }
+    });
+
+    // remove markers not present anymore
+    existingIds.forEach((id) => {
+      const data = markersRef.current.get(id);
+      if (data) {
+        try {
+          data.marker.remove();
+        } catch (e) {}
+        markersRef.current.delete(id);
+        const raf = rafHandlesRef.current.get(id);
+        if (raf) cancelAnimationFrame(raf);
+        rafHandlesRef.current.delete(id);
+      }
+    });
+
+    // start animation loop for any marker with a target
+    markersRef.current.forEach((data, id) => {
+      if (!rafHandlesRef.current.get(id)) {
+        const loop = () => {
+          const now = performance.now();
+          const { current, target } = data;
+          if (!target) {
+            // nothing to do
+            const handle = requestAnimationFrame(loop);
+            rafHandlesRef.current.set(id, handle);
+            return;
+          }
+
+          const speed = 0.12; // proportion to move per frame (tweak for smoothness)
+          const latDiff = target.lat - current.lat;
+          const lngDiff = target.lng - current.lng;
+
+          // if very close, snap
+          if (Math.abs(latDiff) < 1e-6 && Math.abs(lngDiff) < 1e-6) {
+            current.lat = target.lat;
+            current.lng = target.lng;
+            try {
+              data.marker.setLngLat([current.lng, current.lat]);
+            } catch (e) {}
+            // clear target
+            delete data.target;
+            const handle = requestAnimationFrame(loop);
+            rafHandlesRef.current.set(id, handle);
+            return;
+          }
+
+          // linear interpolation
+          current.lat += latDiff * speed;
+          current.lng += lngDiff * speed;
+
+          try {
+            data.marker.setLngLat([current.lng, current.lat]);
+          } catch (e) {}
+
+          const handle = requestAnimationFrame(loop);
+          rafHandlesRef.current.set(id, handle);
+        };
+
+        const handle = requestAnimationFrame(loop);
+        rafHandlesRef.current.set(id, handle);
+      }
+    });
+
+    // optionally center map on followId
+    if (followId && markersRef.current.has(followId)) {
+      const d = markersRef.current.get(followId);
+      if (d) {
+        try {
+          map.easeTo({ center: [d.current.lng, d.current.lat], duration: 700 });
+        } catch (e) {}
       }
     }
+
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [participants, isReady, followId]);
+
+  // Polling /api/matrix-eta every 5s when computeRoutes is true
+  useEffect(() => {
+    if (!isReady) return;
+
+    if (computeRoutes) {
+      startPolling();
+    } else {
+      stopPolling();
+    }
+
+    return () => stopPolling();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [computeRoutes, isReady, participants]);
+
+  function startPolling() {
+    if (pollIntervalRef.current) return; // already polling
+
+    // run immediately and then every 5s
+    fetchAndDispatchETAs();
+    const id = window.setInterval(fetchAndDispatchETAs, 5000);
+    pollIntervalRef.current = id as unknown as number;
   }
 
-  const formatETA = (s?: number | null) => {
-    if (s === undefined || s === null) return '--';
-    const mins = Math.round(s / 60);
-    if (mins < 60) return `${mins} min`;
-    const hours = Math.floor(mins / 60);
-    const rem = mins % 60;
-    return `${hours}h ${rem}m`;
-  };
+  function stopPolling() {
+    if (pollIntervalRef.current) {
+      clearInterval(pollIntervalRef.current as number);
+      pollIntervalRef.current = null;
+    }
+  }
 
-  // Call matrix endpoint server-side via our API to get ETAs to destination
-  async function fetchETAs(origins: { id: string; lat: number; lng: number }[], dest: { lat: number; lng: number }) {
+  async function fetchAndDispatchETAs() {
     try {
+      // prepare participants payload (array)
+      const list = Object.values(participants).map((p) => ({ id: p.id, lat: p.lat, lng: p.lng }));
+      if (list.length === 0) return;
+
       const res = await fetch("/api/matrix-eta", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ origins, destination: dest }),
+        body: JSON.stringify({ participants: list }),
       });
+
       if (!res.ok) {
-        const txt = await res.text();
-        console.warn("matrix-eta failed", res.status, txt);
-        return null;
+        // try to parse body for debugging but don't throw
+        try { await res.text(); } catch (_) {}
+        return;
       }
+
       const json = await res.json();
-      
       if (!json) return;
 
+      /**
+       * Supported response shapes (in order of detection):
+       *
+       * 1) { etas: { "<id>": { etaSeconds, distanceMeters } } }
+       * 2) { results: [{ id, etaSeconds, distanceMeters }, ...] }
+       * 3) [{ id, etaSeconds, distanceMeters }, ...]    (array)
+       * 4) { "<id>": { etaSeconds, distanceMeters }, ... }  (top-level map)
+       *
+       * The code below detects which one we got and normalizes it to a map.
+       */
       let normalized: Record<string, { etaSeconds: number | null; distanceMeters: number | null }> = {};
-      
-      // Case 1: { results: [{ id, etaSeconds, distanceMeters }, ...] }
-      if (Array.isArray(json.results)) {
+
+      // Case 1: json.etas as map
+      if (json.etas && typeof json.etas === "object" && !Array.isArray(json.etas)) {
+        Object.entries(json.etas).forEach(([id, val]) => {
+          if (!val) return;
+          normalized[id] = {
+            etaSeconds: typeof (val as any).etaSeconds === "number" ? (val as any).etaSeconds : (val as any).durationSeconds ?? null,
+            distanceMeters: typeof (val as any).distanceMeters === "number" ? (val as any).distanceMeters : (val as any).distance ?? null,
+          } as any;
+        });
+      }
+      // Case 2: json.results array of objects
+      else if (Array.isArray(json.results)) {
         json.results.forEach((it: any) => {
           if (!it || !it.id) return;
           normalized[it.id] = {
-            etaSeconds: it.etaSeconds ?? null,
-            distanceMeters: it.distanceMeters ?? null,
+            etaSeconds: it.etaSeconds ?? it.durationSeconds ?? it.duration ?? null,
+            distanceMeters: it.distanceMeters ?? it.distance ?? null,
           };
-        });
-      }
-      // Case 2: { etas: { "<id>": { etaSeconds, distanceMeters } } }
-      else if (json.etas && typeof json.etas === "object" && !Array.isArray(json.etas)) {
-         Object.entries(json.etas).forEach(([id, val]) => {
-          if (!val) return;
-          normalized[id] = {
-            etaSeconds: typeof (val as any).etaSeconds === "number" ? (val as any).etaSeconds : null,
-            distanceMeters: typeof (val as any).distanceMeters === "number" ? (val as any).distanceMeters : null,
-          } as any;
         });
       }
       // Case 3: top-level array
@@ -266,187 +354,72 @@ export default function TomTomMapController({
         json.forEach((it: any) => {
           if (!it || !it.id) return;
           normalized[it.id] = {
-            etaSeconds: it.etaSeconds ?? null,
-            distanceMeters: it.distanceMeters ?? null,
+            etaSeconds: it.etaSeconds ?? it.durationSeconds ?? it.duration ?? null,
+            distanceMeters: it.distanceMeters ?? it.distance ?? null,
           };
         });
       }
-       // Case 4: top-level map keyed by id
+      // Case 4: top-level map keyed by id
       else if (typeof json === "object") {
+        // detect if object keys look like ids mapped to value objects
         const maybeIds = Object.keys(json);
-        const looksLikeMap = maybeIds.length > 0 && typeof json[maybeIds[0]] === "object" && (json[maybeIds[0]].etaSeconds || json[maybeIds[0]].distanceMeters);
+        const looksLikeMap = maybeIds.length > 0 && typeof json[maybeIds[0]] === "object" && (json[maybeIds[0]].etaSeconds || json[maybeIds[0]].distanceMeters || json[maybeIds[0]].duration);
         if (looksLikeMap) {
           Object.entries(json).forEach(([id, val]) => {
             if (!val) return;
             normalized[id] = {
-              etaSeconds: (val as any).etaSeconds ?? null,
-              distanceMeters: (val as any).distanceMeters ?? null,
+              etaSeconds: (val as any).etaSeconds ?? (val as any).durationSeconds ?? (val as any).duration ?? null,
+              distanceMeters: (val as any).distanceMeters ?? (val as any).distance ?? null,
             } as any;
           });
         }
       }
 
-      // Dispatch normalized map
+      // Now dispatch normalized map to onParticipantETA + update popups
       Object.entries(normalized).forEach(([id, val]) => {
-          if (val && onParticipantETA) {
-              onParticipantETA(id, val);
+        try {
+          // only call when values exist (allow 0)
+          if (val && (typeof val.etaSeconds === "number" || typeof val.distanceMeters === "number")) {
+            onParticipantETA && onParticipantETA(id, { etaSeconds: val.etaSeconds ?? null, distanceMeters: val.distanceMeters ?? null });
           }
-          const marker = markersRef.current.get(id);
-          const popup = marker ? marker.getPopup() : null;
-          if (popup) {
-              const participant = participants.find(p => p.id === id);
-              const name = participant?.name || 'Friend';
-              const etaText = (typeof val.etaSeconds === "number") ? formatETA(val.etaSeconds) : "--";
-              const distText = (typeof val.distanceMeters === 'number') ? `${(val.distanceMeters / 1000).toFixed(1)} km` : '';
-              popup.setHTML(`<div style="font-weight:700">${name}</div><div style="font-size:12px">ETA: ${etaText}</div><div style="font-size:11px;color:#666">${distText}</div>`);
+
+          // update popup text if marker exists
+          const data = markersRef.current.get(id);
+          if (data && data.popupEl) {
+            // preserve name (left of '|') if present else just name
+            const baseName = (participants[id] && participants[id].name) || data.popupEl.innerText.split("|", 1)[0].trim();
+            const etaText = (typeof val.etaSeconds === "number") ? formatETA(val.etaSeconds) : "--";
+            data.popupEl.innerText = `${baseName} | ETA: ${etaText}`;
           }
+        } catch (e) {
+          // swallow per-participant errors to avoid breaking the whole loop
+        }
       });
 
     } catch (e) {
-      console.warn("matrix-eta request error", e);
-      return null;
+      // swallow errors silently in polling to avoid noisy console in production
+      // you can temporarily add console.warn('ETA poll error', e) while debugging
     }
   }
 
-  useEffect(() => {
-    let cancelled = false;
+  function formatETA(s: number | null | undefined) {
+    if (!s && s !== 0) return "--";
+    const mins = Math.round((s as number) / 60);
+    if (mins < 60) return `${mins} min`;
+    const hours = Math.floor(mins / 60);
+    const rem = mins % 60;
+    return `${hours}h ${rem}m`;
+  }
 
-    async function setup() {
-      if (!containerRef.current) return;
-      try {
-        await ensureTomTomScript();
-      } catch (e) {
-        console.error("Failed to load TomTom SDK", e);
-        return;
-      }
-      // @ts-ignore
-      const tt = (window as any).tt;
-      if (!tt) {
-        console.error("TomTom SDK not available on window.tt");
-        return;
-      }
-
-      // pick key from PUBLIC env when client needs tiles
-      const clientKey = (process.env.NEXT_PUBLIC_TOMTOM_KEY) as string | undefined;
-      if (!clientKey) {
-        console.warn("No TomTom client key found in NEXT_PUBLIC_TOMTOM_KEY. Map tiles might not load correctly.");
-      }
-
-      const map = tt.map({
-        key: clientKey || "",
-        container: containerRef.current,
-        center: [initialCenter.lng, initialCenter.lat],
-        zoom: initialZoom,
-      });
-
-      mapRef.current = map;
-
-      // Add fullscreen and navigation controls
-      map.addControl(new tt.NavigationControl());
-      map.addControl(new tt.FullscreenControl());
-
-      // If destination is provided, add a destination marker
-      if (destination?.coords) {
-        try {
-          new tt.Marker({ color: "#ef4444" }).setLngLat([destination.coords.lon, destination.coords.lat]).addTo(map);
-        } catch (e) {}
-      } else if (destination?.lat && destination?.lng) {
-         try {
-          new tt.Marker({ color: "#ef4444" }).setLngLat([destination.lng, destination.lat]).addTo(map);
-        } catch (e) {}
-      }
-
-      // Matrix polling for ETAs
-      async function matrixLoop() {
-        if (cancelled || !computeRoutes) return;
-
-        const pOrigins = participants.map(p => ({
-          id: p.id,
-          lat: p.coords?.lat ?? p.lat,
-          lng: p.coords?.lon ?? p.lng,
-        })).filter(p => typeof p.lat === 'number' && typeof p.lng === 'number') as {id: string, lat: number, lng: number}[];
-
-        const destCoords = destination?.coords ?? (destination?.lat ? { lat: destination.lat, lon: destination.lng } : null);
-        const dest = destCoords ? { lat: destCoords.lat, lng: destCoords.lon ?? destCoords.lng } : null;
-
-
-        if (pOrigins.length === 0 || !dest) {
-          matrixTimerRef.current = window.setTimeout(matrixLoop, 5000);
-          return;
-        }
-
-        await fetchETAs(pOrigins, dest);
-
-        matrixTimerRef.current = window.setTimeout(matrixLoop, 5000);
-      }
-
-      // Start matrix loop
-      if (computeRoutes) {
-        matrixLoop().catch((e) => console.warn("matrixLoop err", e));
-      }
-
-      // Cleanup on unmount
-      return () => {
-        cancelled = true;
-        if (matrixTimerRef.current) clearTimeout(matrixTimerRef.current);
-        if (mapRef.current) {
-          try { mapRef.current.remove(); } catch {}
-          mapRef.current = null;
-        }
-      };
-    }
-
-    setup();
-
-    return () => {
-      for (const a of animationRefs.current.values()) cancelAnimationFrame(a);
-      animationRefs.current.clear();
-      if (matrixTimerRef.current) clearTimeout(matrixTimerRef.current);
-    };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [computeRoutes, destination]);
-
-  // Update markers when participants prop changes
-  useEffect(() => {
-    // @ts-ignore
-    const tt = (window as any).tt;
-    if (!tt || !mapRef.current) return;
-    
-    const pIds = participants.map((p) => p.id);
-    for (const p of participants) {
-      upsertParticipantMarker(tt, p);
-    }
-    cleanupMarkers(pIds);
-
-    const pToFollow = followId ? participants.find(p => p.id === followId) : undefined;
-    const followCoords = pToFollow?.coords ?? pToFollow;
-
-    if (followCoords && typeof followCoords.lat === 'number' && mapRef.current) {
-      const lon = followCoords.lng ?? (followCoords as any).lon;
-      if (typeof lon === 'number') {
-        mapRef.current.panTo([lon, followCoords.lat], { duration: 1000 });
-      }
-    } else if (participants.length > 0 && !followId) { // only fit bounds if not actively following
-      const coords = participants
-        .map((p) => {
-            const lat = p.coords?.lat ?? p.lat;
-            const lon = p.coords?.lon ?? p.lng;
-            return (typeof lat === 'number' && typeof lon === 'number') ? [lon, lat] : null;
-        })
-        .filter(Boolean) as [number, number][];
-
-      if (destination?.coords) coords.push([destination.coords.lon, destination.coords.lat]);
-      else if (destination?.lat && destination?.lng) coords.push([destination.lng, destination.lat]);
-
-      if (coords.length > 0) {
-          try {
-            const bounds = coords.reduce((b: any, c) => b.extend(c), new tt.LngLatBounds(coords[0], coords[0]));
-            if(mapRef.current) mapRef.current.fitBounds(bounds, { padding: 80, maxZoom: 15 });
-          } catch(e) {}
-      }
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [participants, followId]);
-
-  return <div ref={containerRef} style={{ width: "100%", height: "100%", minHeight: 420, ...style }} />;
+  return (
+    <div className={className} style={{ width: "100%", height: "100%", position: "relative" }}>
+      <div ref={mapRef} style={{ width: "100%", height: "100%" }} />
+      {/* optional: show small readiness indicator */}
+      {!isReady && (
+        <div style={{ position: "absolute", left: 8, top: 8, background: "rgba(255,255,255,0.9)", padding: "6px 8px", borderRadius: 6, fontSize: 12, boxShadow: "0 1px 4px rgba(0,0,0,0.2)" }}>
+          Loading map...
+        </div>
+      )}
+    </div>
+  );
 }
