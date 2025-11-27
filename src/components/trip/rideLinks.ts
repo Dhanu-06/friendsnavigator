@@ -1,50 +1,67 @@
 // src/components/trip/rideLinks.ts
-// Utilities to open Uber / Ola / Rapido / Transit with deep link + web fallback.
+// Robust deep-link + Android Intent fallback builder for Uber / Ola / Rapido / Transit
 
 type Coords = { lat: number; lng: number; name?: string };
 
-// Small helper: tries deep link, falls back to web URL after timeout.
-// Uses Android intent scheme for Uber if on Android.
-function openDeepLinkWithFallback(appUrl: string, webUrl:string, opts?: { useIntentAndroid?: boolean; packageName?: string }) {
-  const ua = navigator.userAgent || '';
-  const isAndroid = /Android/i.test(ua);
-  const isIOS = /iPhone|iPad|iPod/i.test(ua);
+function isAndroid(ua = navigator.userAgent) {
+  return /Android/i.test(ua);
+}
+function isIOS(ua = navigator.userAgent) {
+  return /iPhone|iPad|iPod/i.test(ua);
+}
 
-  // Android Intent fallback (stronger than naive timeout) when requested
-  if (isAndroid && opts?.useIntentAndroid && opts?.packageName) {
-    try {
-      // Create intent URI (opens app if installed or Play Store if not)
-      // Format: intent://<path>#Intent;scheme=<scheme>;package=<pkg>;end
-      // For simplicity we assume appUrl is like "uber://?action=..." -> we convert scheme & path
-      const url = new URL(appUrl);
-      const scheme = url.protocol.replace(':', '');
-      const hostAndPath = appUrl.replace(`${scheme}://`, '');
-      const intentUri = `intent://${hostAndPath}#Intent;scheme=${scheme};package=${opts.packageName};S.browser_fallback_url=${encodeURIComponent(webUrl)};end`;
-      window.location.href = intentUri;
-      return;
-    } catch (e) {
-      // continue to default behavior
-    }
+/**
+ * tryOpenAndFallback
+ * - On Android with intentUri: sets location to intentUri (which triggers Play Store fallback if not installed).
+ * - On other platforms: attempts to open appUrl then falls back to webUrl after timeout.
+ * - Uses visibilitychange to infer whether user left the page (app opened) and avoid opening fallback when not needed.
+ */
+function tryOpenAndFallback(appUrl: string, webUrl: string, intentUri?: string) {
+  const ua = navigator.userAgent || '';
+  const onAndroid = isAndroid(ua);
+
+  // If we have a platform-specific intentUri and Android, use it for best fallback behavior
+  if (onAndroid && intentUri) {
+    // Setting location to intent: URI either opens app or Play Store
+    window.location.href = intentUri;
+    // Still set a fallback to web after a short delay in case something blocks intent
+    setTimeout(() => {
+      window.location.href = webUrl;
+    }, 1400);
+    return;
   }
 
-  // Generic attempt: set location then fallback
-  const start = Date.now();
-  // Attempt to open app
-  window.location.href = appUrl;
+  // Otherwise fallback to the generic approach using visibilitychange + timeout
+  let hidden = false;
+  const handleVisibility = () => {
+    hidden = document.hidden;
+  };
+  document.addEventListener('visibilitychange', handleVisibility);
 
-  // After a short timeout, if still here, open web fallback
+  const start = Date.now();
+  // Attempt to open app via appUrl
+  try {
+    // On iOS Safari, setting location may be blocked unless triggered by user gesture
+    window.location.href = appUrl;
+  } catch (e) {
+    // ignore
+  }
+
+  // Wait 1.2s; if page still visible, open web fallback
   setTimeout(() => {
-    if (Date.now() - start < 2500) {
-      // still on page -> open fallback
+    document.removeEventListener('visibilitychange', handleVisibility);
+    // If page still visible (user didn't leave to another app), open web fallback
+    if (!hidden && Date.now() - start < 3000) {
       window.location.href = webUrl;
     }
   }, 1200);
 }
 
-// ----- Provider builders -----
+/* ---------------------------
+   Provider link builders
+   --------------------------- */
 
 export function buildUberLinks(pickup?: Coords, drop?: Coords) {
-  // app deep link
   const app = new URL('uber://?action=setPickup');
   if (pickup) {
     app.searchParams.set('pickup[latitude]', String(pickup.lat));
@@ -59,7 +76,6 @@ export function buildUberLinks(pickup?: Coords, drop?: Coords) {
     if (drop.name) app.searchParams.set('dropoff[formatted_address]', drop.name);
   }
 
-  // web fallback
   const web = new URL('https://m.uber.com/ul/');
   web.searchParams.set('action', 'setPickup');
   if (pickup) {
@@ -75,17 +91,29 @@ export function buildUberLinks(pickup?: Coords, drop?: Coords) {
     if (drop.name) web.searchParams.set('dropoff[formatted_address]', drop.name);
   }
 
+  // Build Android intent URI for Uber
+  // Convert appUrl into intent format: intent://<path>#Intent;scheme=uber;package=com.ubercab;end
+  const appStr = app.toString();
+  let intentUri = '';
+  try {
+    const parsed = new URL(appStr);
+    const scheme = parsed.protocol.replace(':', '');
+    const rest = appStr.replace(`${scheme}://`, '');
+    intentUri = `intent://${rest}#Intent;scheme=${scheme};package=com.ubercab;end`;
+  } catch (e) {
+    intentUri = '';
+  }
+
   return {
     appUrl: app.toString(),
     webUrl: web.toString(),
-    // Uber Android package (used for intent fallback)
+    intentUri,
     packageName: 'com.ubercab',
-    scheme: 'uber',
   };
 }
 
 export function buildOlaLinks(pickup?: Coords, drop?: Coords) {
-  // Ola web-first approach (web reliably opens on desktop/mobile and often prompts app)
+  // Ola web booking
   const web = new URL('https://book.olacabs.com/');
   if (pickup) {
     web.searchParams.set('lat', String(pickup.lat));
@@ -98,7 +126,7 @@ export function buildOlaLinks(pickup?: Coords, drop?: Coords) {
     if (drop.name) web.searchParams.set('drop', drop.name);
   }
 
-  // Ola app scheme — varies by version; we provide a common attempt
+  // Ola app attempt (scheme may vary by client version)
   const app = new URL('olacabs://book/new');
   if (pickup) {
     app.searchParams.set('pickup_lat', String(pickup.lat));
@@ -110,21 +138,31 @@ export function buildOlaLinks(pickup?: Coords, drop?: Coords) {
     app.searchParams.set('drop_lng', String(drop.lng));
     if (drop.name) app.searchParams.set('drop_name', drop.name);
   }
-  app.searchParams.set('utm_source', 'friends-navigator-x');
 
+  // Android intent URI (best-effort)
+  let intentUri = '';
+  try {
+    const appStr = app.toString();
+    const parsed = new URL(appStr);
+    const scheme = parsed.protocol.replace(':', '');
+    const rest = appStr.replace(`${scheme}://`, '');
+    // Ola package: com.olacabs.customer
+    intentUri = `intent://${rest}#Intent;scheme=${scheme};package=com.olacabs.customer;end`;
+  } catch (e) {
+    intentUri = '';
+  }
 
   return {
     appUrl: app.toString(),
     webUrl: web.toString(),
-    packageName: 'com.olacabs.customer', // best-effort
-    scheme: 'olacabs',
+    intentUri,
+    packageName: 'com.olacabs.customer',
   };
 }
 
 export function buildRapidoLinks(pickup?: Coords, drop?: Coords) {
-  // Rapido has limited public deep link docs; use web booking or app attempt
+  // Rapido web (best-effort)
   const web = new URL('https://www.rapido.bike/');
-  // Rapido web may not support lat/lng query params publicly; we include basic params
   if (pickup) {
     web.searchParams.set('pickup_lat', String(pickup.lat));
     web.searchParams.set('pickup_lng', String(pickup.lng));
@@ -134,30 +172,41 @@ export function buildRapidoLinks(pickup?: Coords, drop?: Coords) {
     web.searchParams.set('drop_lng', String(drop.lng));
   }
 
+  // Rapido app scheme (best-effort, may differ by platform/version)
   const app = new URL('rapido://open');
   if (pickup) {
     app.searchParams.set('pickup_lat', String(pickup.lat));
     app.searchParams.set('pickup_lng', String(pickup.lng));
      if(pickup.name) app.searchParams.set('pickup_name', pickup.name);
   }
-
   if (drop) {
     app.searchParams.set('drop_lat', String(drop.lat));
-    app.search_params.set('drop_lng', String(drop.lng));
+    app.searchParams.set('drop_lng', String(drop.lng));
      if(drop.name) app.searchParams.set('drop_name', drop.name);
   }
 
+  // Intent URI
+  let intentUri = '';
+  try {
+    const appStr = app.toString();
+    const parsed = new URL(appStr);
+    const scheme = parsed.protocol.replace(':', '');
+    const rest = appStr.replace(`${scheme}://`, '');
+    // Rapido package guess: com.rapido.passenger (best guess)
+    intentUri = `intent://${rest}#Intent;scheme=${scheme};package=com.rapido.passenger;end`;
+  } catch (e) {
+    intentUri = '';
+  }
 
   return {
     appUrl: app.toString(),
     webUrl: web.toString(),
+    intentUri,
     packageName: 'com.rapido.passenger',
-    scheme: 'rapido',
   };
 }
 
 export function buildTransitLink(origin: Coords, destination: Coords) {
-  // Use Google Maps transit directions (reliable cross-platform web fallback)
   const u = new URL('https://www.google.com/maps/dir/');
   u.searchParams.set('api', '1');
   u.searchParams.set('travelmode', 'transit');
@@ -166,18 +215,21 @@ export function buildTransitLink(origin: Coords, destination: Coords) {
   return u.toString();
 }
 
-// High-level open helper
+/* ---------------------------
+   High-level open API
+   --------------------------- */
+
 export function openRideProvider(provider: 'uber' | 'ola' | 'rapido' | 'transit', pickup?: Coords, drop?: Coords) {
   if (provider === 'uber') {
-    const { appUrl, webUrl, packageName } = buildUberLinks(pickup, drop);
-    // use intent fallback on Android for Uber
-    openDeepLinkWithFallback(appUrl, webUrl, { useIntentAndroid: true, packageName });
+    const { appUrl, webUrl, intentUri } = buildUberLinks(pickup, drop);
+    // Use intentUri on Android if available
+    tryOpenAndFallback(appUrl, webUrl, intentUri);
   } else if (provider === 'ola') {
-    const { appUrl, webUrl, packageName } = buildOlaLinks(pickup, drop);
-    openDeepLinkWithFallback(appUrl, webUrl, { useIntentAndroid: true, packageName });
+    const { appUrl, webUrl, intentUri } = buildOlaLinks(pickup, drop);
+    tryOpenAndFallback(appUrl, webUrl, intentUri);
   } else if (provider === 'rapido') {
-    const { appUrl, webUrl, packageName } = buildRapidoLinks(pickup, drop);
-    openDeepLinkWithFallback(appUrl, webUrl, { useIntentAndroid: true, packageName });
+    const { appUrl, webUrl, intentUri } = buildRapidoLinks(pickup, drop);
+    tryOpenAndFallback(appUrl, webUrl, intentUri);
   } else if (provider === 'transit') {
     if (!pickup || !drop) return;
     window.open(buildTransitLink(pickup, drop), '_blank');
