@@ -1,53 +1,103 @@
-// src/hooks/useReverseGeocode.ts
 'use client';
 
-import { useState, useEffect } from 'react';
-import { reverseGeocodeClient } from '@/lib/reverseGeocode';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
-// Simple in-memory cache to avoid repeated requests for the same location
-const addressCache = new Map<string, string>();
+type RGResult = {
+  address: string;
+  raw?: any;
+};
 
-/**
- * A hook to reverse geocode coordinates into a human-readable address.
- * It includes an in-memory cache to prevent redundant API calls.
- * @param lat - The latitude of the location.
- * @param lng - The longitude of the location.
- * @returns The address string or null if not yet resolved or an error occurred.
- */
+type CacheEntry = {
+  value: RGResult;
+  ts: number; // epoch ms when cached
+};
+
+const CACHE_KEY = 'rg_cache_v1';
+const TTL_MS = 1000 * 60 * 5; // 5 minutes cache validity
+const ROUND_DECIMALS = 4; // rounding precision (approx ~10m)
+
+function roundCoord(v: number, decimals = ROUND_DECIMALS) {
+  const factor = Math.pow(10, decimals);
+  return Math.round(v * factor) / factor;
+}
+
+function readCacheFromStorage(): Record<string, CacheEntry> {
+  try {
+    if (typeof window === 'undefined') return {};
+    const raw = localStorage.getItem(CACHE_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch (e) {
+    return {};
+  }
+}
+
+function writeCacheToStorage(cache: Record<string, CacheEntry>) {
+  try {
+    if (typeof window === 'undefined') return;
+    localStorage.setItem(CACHE_KEY, JSON.stringify(cache));
+  } catch (e) {
+    // Ignore storage errors
+  }
+}
+
 export function useReverseGeocode(lat?: number | null, lng?: number | null) {
-  const [address, setAddress] = useState<string | null>(null);
+  const [result, setResult] = useState<RGResult | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (typeof lat !== 'number' || typeof lng !== 'number') {
-      setAddress(null);
-      return;
-    }
+  const memoryCacheRef = useRef<Record<string, CacheEntry>>(readCacheFromStorage());
+  const inflightRef = useRef<Record<string, Promise<any>>>({});
 
-    // Use a rounded key to cache nearby locations as the same address
-    const cacheKey = `${lat.toFixed(4)},${lng.toFixed(4)}`;
-    if (addressCache.has(cacheKey)) {
-      setAddress(addressCache.get(cacheKey)!);
-      return;
-    }
-
-    let isCancelled = false;
-
-    async function fetchAddress() {
-      const addr = await reverseGeocodeClient(lat!, lng!);
-      if (!isCancelled) {
-        if (addr) {
-          addressCache.set(cacheKey, addr);
-        }
-        setAddress(addr);
-      }
-    }
-
-    fetchAddress();
-
-    return () => {
-      isCancelled = true;
-    };
+  const key = useMemo(() => {
+    if (lat == null || lng == null || isNaN(lat) || isNaN(lng)) return null;
+    return `${roundCoord(lat)},${roundCoord(lng)}`;
   }, [lat, lng]);
 
-  return address;
+  useEffect(() => {
+    if (!key) {
+      setResult(null);
+      return;
+    }
+
+    const now = Date.now();
+    const cached = memoryCacheRef.current[key];
+    if (cached && now - cached.ts < TTL_MS) {
+      setResult(cached.value);
+      return;
+    }
+
+    if (inflightRef.current[key]) {
+      // Don't trigger a new fetch if one is already in progress for this key
+      return;
+    }
+    
+    const fetchAddress = async () => {
+      setLoading(true);
+      setError(null);
+      
+      try {
+        const res = await fetch(`/api/reverse-geocode?lat=${lat}&lng=${lng}`);
+        if (!res.ok) {
+          throw new Error('Failed to fetch address');
+        }
+        const data = await res.json();
+        const entry: CacheEntry = { value: data, ts: Date.now() };
+
+        setResult(data);
+        memoryCacheRef.current[key] = entry;
+        writeCacheToStorage(memoryCacheRef.current);
+
+      } catch (err: any) {
+        setError(err.message);
+      } finally {
+        setLoading(false);
+        delete inflightRef.current[key];
+      }
+    };
+    
+    inflightRef.current[key] = fetchAddress();
+
+  }, [key, lat, lng]);
+
+  return { address: result?.address ?? null, loading, error };
 }

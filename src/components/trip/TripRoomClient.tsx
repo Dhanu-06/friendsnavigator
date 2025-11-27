@@ -149,8 +149,8 @@ export default function TripRoomClient({ tripId, currentUser, initialTrip = null
   const dropLat = tripMeta?.destination?.lat;
   const dropLng = tripMeta?.destination?.lng;
 
-  const pickupName = useReverseGeocode(pickupLat, pickupLng);
-  const dropName = useReverseGeocode(dropLat, dropLng);
+  const { address: pickupName } = useReverseGeocode(pickupLat, pickupLng);
+  const { address: dropName } = useReverseGeocode(dropLat, dropLng);
 
   const pickup = pickupLat && pickupLng ? { lat: pickupLat, lng: pickupLng, name: pickupName || 'Current Location' } : undefined;
   const drop = dropLat && dropLng ? { lat: dropLat, lng: dropLng, name: dropName || tripMeta?.destination?.name || 'Destination' } : undefined;

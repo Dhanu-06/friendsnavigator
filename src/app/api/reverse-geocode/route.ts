@@ -2,25 +2,33 @@
 import { NextResponse } from "next/server";
 
 /**
- * POST /api/reverse-geocode
- * Body: { lat: number, lng: number }
+ * GET /api/reverse-geocode
+ * Query Params: lat, lng
  * Response: { address: string | null, raw?: any }
  *
  * Requires NEXT_TOMTOM_KEY in server env.
  */
-
-export async function POST(req: Request) {
+export async function GET(req: Request) {
   try {
-    const body = await req.json();
-    const { lat, lng } = body || {};
-    if (typeof lat !== "number" || typeof lng !== "number") {
-      return NextResponse.json({ error: "lat & lng required" }, { status: 400 });
+    const { searchParams } = new URL(req.url);
+    const lat = searchParams.get('lat');
+    const lng = searchParams.get('lng');
+
+    if (!lat || !lng) {
+      return NextResponse.json({ error: "lat & lng query parameters are required" }, { status: 400 });
+    }
+    
+    const latNum = parseFloat(lat);
+    const lngNum = parseFloat(lng);
+
+    if (isNaN(latNum) || isNaN(lngNum)) {
+      return NextResponse.json({ error: "Invalid lat/lng values" }, { status: 400 });
     }
 
     const key = process.env.NEXT_TOMTOM_KEY || process.env.NEXT_PUBLIC_TOMTOM_KEY;
     if (!key) return NextResponse.json({ error: "TomTom key not configured (NEXT_TOMTOM_KEY)" }, { status: 500 });
 
-    const url = `https://api.tomtom.com/search/2/reverseGeocoding/${encodeURIComponent(lat)},${encodeURIComponent(lng)}.json?key=${encodeURIComponent(
+    const url = `https://api.tomtom.com/search/2/reverseGeocoding/${encodeURIComponent(latNum)},${encodeURIComponent(lngNum)}.json?key=${encodeURIComponent(
       key
     )}&language=en-GB&limit=1`;
 
