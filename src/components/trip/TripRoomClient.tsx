@@ -39,6 +39,7 @@ export default function TripRoomClient({
   onSendMessage,
   onAddExpense,
   connectionStatus,
+  locationPermission,
 }: TripRoomClientProps) {
   const [participantETAs, setParticipantETAs] = useState<Record<string, { etaSeconds: number; distanceMeters: number }>>({});
   const [followId, setFollowId] = useState<string | null>(null);
@@ -76,6 +77,7 @@ export default function TripRoomClient({
   
   const formattedMessages = useMemo(() => {
       return messages.map(msg => ({
+          ...msg,
           id: msg.id,
           userName: msg.senderId === currentUser.id ? 'You' : msg.userName,
           text: msg.text,
