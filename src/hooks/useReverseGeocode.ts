@@ -3,29 +3,30 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 type RGResult = {
-  address: string;
+  name: string;
+  shortName?: string;
   raw?: any;
 };
 
 type CacheEntry = {
   value: RGResult;
-  ts: number; // epoch ms when cached
+  ts: number;
 };
 
 const CACHE_KEY = 'rg_cache_v1';
-const TTL_MS = 1000 * 60 * 5; // 5 minutes cache validity
-const ROUND_DECIMALS = 4; // rounding precision (approx ~10m)
+const TTL_MS = 1000 * 60 * 5;
+const ROUND_DECIMALS = 5;
 
-function roundCoord(v: number, decimals = ROUND_DECIMALS) {
+export function roundCoord(v: number, decimals = ROUND_DECIMALS) {
   const factor = Math.pow(10, decimals);
   return Math.round(v * factor) / factor;
 }
 
 function readCacheFromStorage(): Record<string, CacheEntry> {
   try {
-    if (typeof window === 'undefined') return {};
     const raw = localStorage.getItem(CACHE_KEY);
-    return raw ? JSON.parse(raw) : {};
+    if (!raw) return {};
+    return JSON.parse(raw);
   } catch (e) {
     return {};
   }
@@ -33,71 +34,126 @@ function readCacheFromStorage(): Record<string, CacheEntry> {
 
 function writeCacheToStorage(cache: Record<string, CacheEntry>) {
   try {
-    if (typeof window === 'undefined') return;
     localStorage.setItem(CACHE_KEY, JSON.stringify(cache));
-  } catch (e) {
-    // Ignore storage errors
-  }
+  } catch (e) {}
 }
 
-export function useReverseGeocode(lat?: number | null, lng?: number | null) {
+export default function useReverseGeocode(lat?: number | null, lng?: number | null) {
   const [result, setResult] = useState<RGResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const memoryCacheRef = useRef<Record<string, CacheEntry>>(readCacheFromStorage());
-  const inflightRef = useRef<Record<string, Promise<any>>>({});
+  const inflightRef = useRef<Record<string, Promise<CacheEntry> | null>>({});
 
   const key = useMemo(() => {
-    if (lat == null || lng == null || isNaN(lat) || isNaN(lng)) return null;
-    return `${roundCoord(lat)},${roundCoord(lng)}`;
+    if (lat == null || lng == null) return null;
+    const rlat = roundCoord(lat);
+    const rlng = roundCoord(lng);
+    return `${rlat},${rlng}`;
   }, [lat, lng]);
 
   useEffect(() => {
     if (!key) {
       setResult(null);
+      setLoading(false);
+      setError(null);
       return;
     }
 
+    const mem = memoryCacheRef.current[key];
     const now = Date.now();
-    const cached = memoryCacheRef.current[key];
-    if (cached && now - cached.ts < TTL_MS) {
-      setResult(cached.value);
+    if (mem && now - mem.ts < TTL_MS) {
+      setResult(mem.value);
+      setLoading(false);
+      setError(null);
+      return;
+    }
+
+    const storageCache = readCacheFromStorage();
+    if (storageCache[key] && now - storageCache[key].ts < TTL_MS) {
+      memoryCacheRef.current[key] = storageCache[key];
+      setResult(storageCache[key].value);
+      setLoading(false);
+      setError(null);
       return;
     }
 
     if (inflightRef.current[key]) {
-      // Don't trigger a new fetch if one is already in progress for this key
+      setLoading(true);
+      (inflightRef.current[key] as Promise<CacheEntry>)
+        .then((entry) => {
+          setResult(entry.value);
+          setLoading(false);
+        })
+        .catch((e) => {
+          setError((e && e.message) || 'Reverse geocode failed');
+          setLoading(false);
+        });
       return;
     }
-    
-    const fetchAddress = async () => {
-      setLoading(true);
-      setError(null);
-      
+
+    setLoading(true);
+    setError(null);
+
+    const p = (async (): Promise<CacheEntry> => {
       try {
-        const res = await fetch(`/api/reverse-geocode?lat=${lat}&lng=${lng}`);
+        const res = await fetch(`/api/reverse-geocode?lat=${encodeURIComponent(lat!)}&lng=${encodeURIComponent(lng!)}`, {
+          method: 'GET',
+          headers: { 'Content-Type': 'application/json' },
+        });
+
         if (!res.ok) {
-          throw new Error('Failed to fetch address');
+          const txt = await res.text().catch(() => null);
+          throw new Error(txt || `HTTP ${res.status}`);
         }
-        const data = await res.json();
-        const entry: CacheEntry = { value: data, ts: Date.now() };
 
-        setResult(data);
+        const json = await res.json().catch(() => null);
+
+        let name = 'Unknown location';
+        if (!json) {
+          name = `${roundCoord(lat!)}, ${roundCoord(lng!)}`;
+        } else if (typeof json === 'string') {
+          name = json;
+        } else if (json.name) {
+          name = json.name;
+        } else if (json.display_name) {
+          name = json.display_name;
+        } else if (json.address && typeof json.address === 'object') {
+          const a = json.address;
+          name = (a.road || a.suburb || a.neighbourhood || a.city || a.town || a.village || a.state || '').trim();
+          if (!name) name = json.display_name || `${roundCoord(lat!)}, ${roundCoord(lng!)}`;
+        } else {
+          name = json.display_name || `${roundCoord(lat!)}, ${roundCoord(lng!)}`;
+        }
+
+        const shortName = name.split(',')[0];
+        const entry: CacheEntry = { value: { name, shortName, raw: json }, ts: Date.now() };
         memoryCacheRef.current[key] = entry;
-        writeCacheToStorage(memoryCacheRef.current);
+        const st = readCacheFromStorage();
+        st[key] = entry;
+        writeCacheToStorage(st);
 
-      } catch (err: any) {
-        setError(err.message);
-      } finally {
-        setLoading(false);
-        delete inflightRef.current[key];
+        return entry;
+      } catch (e: any) {
+        throw e;
       }
-    };
-    
-    inflightRef.current[key] = fetchAddress();
+    })();
+
+    inflightRef.current[key] = p;
+    p.then((entry) => {
+      setResult(entry.value);
+      setLoading(false);
+    })
+      .catch((e) => {
+        setError((e && e.message) || 'Reverse geocode failed');
+        setLoading(false);
+      })
+      .finally(() => {
+        inflightRef.current[key] = null;
+      });
 
   }, [key, lat, lng]);
 
-  return { address: result?.address ?? null, loading, error };
+  return { name: result?.name ?? null, shortName: result?.shortName ?? null, loading, error };
 }

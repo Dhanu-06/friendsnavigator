@@ -113,7 +113,6 @@ export function buildUberLinks(pickup?: Coords, drop?: Coords) {
 }
 
 export function buildOlaLinks(pickup?: Coords, drop?: Coords) {
-  // Ola web booking
   const web = new URL('https://book.olacabs.com/');
   if (pickup) {
     web.searchParams.set('lat', String(pickup.lat));
@@ -126,27 +125,24 @@ export function buildOlaLinks(pickup?: Coords, drop?: Coords) {
     if (drop.name) web.searchParams.set('drop', drop.name);
   }
 
-  // Ola app attempt (scheme may vary by client version)
-  const app = new URL('olacabs://book/new');
+  const app = new URL('olacabs://book/');
   if (pickup) {
     app.searchParams.set('pickup_lat', String(pickup.lat));
     app.searchParams.set('pickup_lng', String(pickup.lng));
-    if (pickup.name) app.searchParams.set('pickup_name', pickup.name);
+    if (pickup.name) app.searchParams.set('pickup', pickup.name);
   }
   if (drop) {
     app.searchParams.set('drop_lat', String(drop.lat));
     app.searchParams.set('drop_lng', String(drop.lng));
-    if (drop.name) app.searchParams.set('drop_name', drop.name);
+    if (drop.name) app.searchParams.set('drop', drop.name);
   }
 
-  // Android intent URI (best-effort)
   let intentUri = '';
   try {
     const appStr = app.toString();
     const parsed = new URL(appStr);
     const scheme = parsed.protocol.replace(':', '');
     const rest = appStr.replace(`${scheme}://`, '');
-    // Ola package: com.olacabs.customer
     intentUri = `intent://${rest}#Intent;scheme=${scheme};package=com.olacabs.customer;end`;
   } catch (e) {
     intentUri = '';
@@ -161,7 +157,6 @@ export function buildOlaLinks(pickup?: Coords, drop?: Coords) {
 }
 
 export function buildRapidoLinks(pickup?: Coords, drop?: Coords) {
-  // Rapido web (best-effort)
   const web = new URL('https://www.rapido.bike/');
   if (pickup) {
     web.searchParams.set('pickup_lat', String(pickup.lat));
@@ -172,27 +167,18 @@ export function buildRapidoLinks(pickup?: Coords, drop?: Coords) {
     web.searchParams.set('drop_lng', String(drop.lng));
   }
 
-  // Rapido app scheme (best-effort, may differ by platform/version)
-  const app = new URL('rapido://open');
-  if (pickup) {
-    app.searchParams.set('pickup_lat', String(pickup.lat));
-    app.searchParams.set('pickup_lng', String(pickup.lng));
-     if(pickup.name) app.searchParams.set('pickup_name', pickup.name);
-  }
-  if (drop) {
-    app.searchParams.set('drop_lat', String(drop.lat));
-    app.searchParams.set('drop_lng', String(drop.lng));
-     if(drop.name) app.searchParams.set('drop_name', drop.name);
-  }
+  const app = new URL('rapido://ride');
+  if (pickup) app.searchParams.set('pickup_lat', String(pickup.lat));
+  if (pickup) app.searchParams.set('pickup_lng', String(pickup.lng));
+  if (drop) app.searchParams.set('drop_lat', String(drop.lat));
+  if (drop) app.searchParams.set('drop_lng', String(drop.lng));
 
-  // Intent URI
   let intentUri = '';
   try {
     const appStr = app.toString();
     const parsed = new URL(appStr);
     const scheme = parsed.protocol.replace(':', '');
     const rest = appStr.replace(`${scheme}://`, '');
-    // Rapido package guess: com.rapido.passenger (best guess)
     intentUri = `intent://${rest}#Intent;scheme=${scheme};package=com.rapido.passenger;end`;
   } catch (e) {
     intentUri = '';
@@ -215,14 +201,9 @@ export function buildTransitLink(origin: Coords, destination: Coords) {
   return u.toString();
 }
 
-/* ---------------------------
-   High-level open API
-   --------------------------- */
-
 export function openRideProvider(provider: 'uber' | 'ola' | 'rapido' | 'transit', pickup?: Coords, drop?: Coords) {
   if (provider === 'uber') {
     const { appUrl, webUrl, intentUri } = buildUberLinks(pickup, drop);
-    // Use intentUri on Android if available
     tryOpenAndFallback(appUrl, webUrl, intentUri);
   } else if (provider === 'ola') {
     const { appUrl, webUrl, intentUri } = buildOlaLinks(pickup, drop);

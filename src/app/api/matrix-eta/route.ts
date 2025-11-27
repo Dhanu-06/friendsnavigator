@@ -1,10 +1,7 @@
-
-// src/app/api/matrix-eta/route.ts
 import { NextResponse } from 'next/server';
 
-// quick haversine (meters)
 function haversineDistance(lat1: number, lon1: number, lat2: number, lon2: number) {
-  const R = 6371000; // meters
+  const R = 6371000;
   const toRad = (v: number) => (v * Math.PI) / 180;
   const dLat = toRad(lat2 - lat1);
   const dLon = toRad(lon2 - lon1);
@@ -24,14 +21,14 @@ export async function POST(req: Request) {
   }
 
   const dest = { lat: 12.9716, lng: 77.5946 };
-  const speedMetersPerSec = 13.89; // ~50 km/h
+  const speedMetersPerSec = 13.89;
 
   const etas: Record<string, { etaSeconds: number; distanceMeters: number }> = {};
 
   participants.forEach((p: any) => {
     const lat = Number(p.lat);
     const lng = Number(p.lng);
-    if (Number.isNaN(lat) || Number.isNaN(lng) || !p.id) return;
+    if (Number.isNaN(lat) || Number.isNaN(lng)) return;
 
     const dist = Math.round(haversineDistance(lat, lng, dest.lat, dest.lng));
     const etaSeconds = Math.round(dist / speedMetersPerSec);
