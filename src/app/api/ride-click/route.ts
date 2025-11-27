@@ -1,11 +1,25 @@
+// src/app/api/ride-click/route.ts
 import { NextResponse } from 'next/server';
-import { getFirebaseInstances } from '@/lib/firebaseClient';
-import { collection, addDoc } from 'firebase/firestore';
+
+type RideRecord = {
+  id: string;
+  provider?: string | null;
+  pickup?: any | null;
+  drop?: any | null;
+  attemptedAppUrl?: string | null;
+  attemptedWebUrl?: string | null;
+  ua?: string | null;
+  timestamp: number;
+};
+
+const MAX_STORE = 200;
+const STORE: RideRecord[] = [];
 
 export async function POST(req: Request) {
   const body = await req.json().catch(() => ({}));
   const ua = req.headers.get('user-agent') || '';
-  const record = {
+  const record: RideRecord = {
+    id: `${Date.now()}-${Math.floor(Math.random() * 100000)}`,
     provider: body.provider || null,
     pickup: body.pickup || null,
     drop: body.drop || null,
@@ -15,20 +29,14 @@ export async function POST(req: Request) {
     timestamp: body.timestamp || Date.now(),
   };
 
-  // Log to server console for immediate debugging
-  console.info('[ride-click]', JSON.stringify(record));
+  STORE.push(record);
+  if (STORE.length > MAX_STORE) STORE.splice(0, STORE.length - MAX_STORE);
 
-  // Persist to Firestore for dashboard viewing
-  try {
-    const { firestore } = getFirebaseInstances();
-    if (firestore) {
-      const logsCollection = collection(firestore, 'ride-clicks');
-      await addDoc(logsCollection, record);
-    }
-  } catch (e) {
-    console.error('Failed to save ride-click log to Firestore:', e);
-    // Still return OK to the client, as logging failure should not block the user.
-  }
-
+  console.info('[ride-click] stored', JSON.stringify(record));
   return NextResponse.json({ ok: true });
+}
+
+export async function GET() {
+  const last = [...STORE].reverse();
+  return NextResponse.json({ ok: true, count: last.length, records: last });
 }

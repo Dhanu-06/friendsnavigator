@@ -1,8 +1,5 @@
 'use client';
-
-import { useEffect, useState } from 'react';
-import { collection, query, orderBy, limit, onSnapshot } from 'firebase/firestore';
-import { useFirestore } from '@/firebase/provider';
+import React, { useEffect, useState } from 'react';
 import {
   Table,
   TableBody,
@@ -14,53 +11,34 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Button } from '@/components/ui/button';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 
-type RideClickLog = {
-  id: string;
-  provider: string;
-  ua: string;
-  timestamp: number;
-  pickup?: { lat: number; lng: number; name?: string };
-  drop?: { lat: number; lng: number; name?: string };
-  attemptedAppUrl?: string;
-  attemptedWebUrl?: string;
-};
+type RideRecord = { id: string; provider?: string | null; pickup?: any; drop?: any; attemptedAppUrl?: string; attemptedWebUrl?: string; ua?: string; timestamp: number; };
 
-export default function TelemetryPage() {
-  const firestore = useFirestore();
-  const [logs, setLogs] = useState<RideClickLog[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+export default function RideClicksPageClient() {
+  const [records, setRecords] = useState<RideRecord[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  async function fetchLogs() {
+    if (loading) return;
+    setLoading(true);
+    try {
+      const res = await fetch('/api/ride-click');
+      const json = await res.json();
+      if (json && json.records) setRecords(json.records);
+    } catch (e) {
+        console.error("Failed to fetch logs", e);
+    } finally {
+        setLoading(false);
+    }
+  }
 
   useEffect(() => {
-    if (!firestore) {
-      setError('Firestore is not available. Ensure you are connected.');
-      setLoading(false);
-      return;
-    }
-
-    const logsCollection = collection(firestore, 'ride-clicks');
-    const q = query(logsCollection, orderBy('timestamp', 'desc'), limit(50));
-
-    const unsubscribe = onSnapshot(
-      q,
-      (snapshot) => {
-        const fetchedLogs: RideClickLog[] = [];
-        snapshot.forEach((doc) => {
-          fetchedLogs.push({ id: doc.id, ...doc.data() } as RideClickLog);
-        });
-        setLogs(fetchedLogs);
-        setLoading(false);
-      },
-      (err) => {
-        console.error('Error fetching telemetry logs:', err);
-        setError('Failed to fetch logs. Check Firestore rules and connection.');
-        setLoading(false);
-      }
-    );
-
-    return () => unsubscribe();
-  }, [firestore]);
+    fetchLogs();
+    const id = setInterval(fetchLogs, 3000);
+    return () => clearInterval(id);
+  }, []);
 
   const getPlatform = (ua: string) => {
     if (/android/i.test(ua)) return <Badge variant="secondary">Android</Badge>;
@@ -74,36 +52,77 @@ export default function TelemetryPage() {
     <div className="container mx-auto py-8">
       <Card>
         <CardHeader>
-          <CardTitle>Ride Click Telemetry</CardTitle>
-          <CardDescription>
-            Showing the last 50 ride-hailing button clicks recorded. Updates in real-time.
-          </CardDescription>
+          <div className="flex justify-between items-start">
+            <div>
+              <CardTitle>Ride Click Telemetry (In-Memory)</CardTitle>
+              <CardDescription>
+                Showing last {records.length} ride-hailing clicks. Updates every 3 seconds.
+              </CardDescription>
+            </div>
+            <Button onClick={fetchLogs} disabled={loading} variant="outline">
+              {loading ? 'Refreshing...' : 'Refresh Now'}
+            </Button>
+          </div>
         </CardHeader>
         <CardContent>
-          {loading && <p>Loading logs...</p>}
-          {error && <p className="text-destructive">{error}</p>}
-          {!loading && logs.length === 0 && (
-            <p className="text-muted-foreground">No ride-click logs found yet. Click a ride button in the app to see data here.</p>
+          {records.length === 0 && !loading && (
+            <p className="text-muted-foreground text-center py-8">No ride-click logs found yet. Click a ride button in the app to see data here.</p>
           )}
-          {!loading && logs.length > 0 && (
-            <ScrollArea className="h-[70vh] w-full">
+          {records.length > 0 && (
+            <ScrollArea className="h-[75vh] w-full">
               <Table>
-                <TableHeader className='sticky top-0 bg-background'>
+                <TableHeader className='sticky top-0 bg-background z-10'>
                   <TableRow>
-                    <TableHead>Provider</TableHead>
-                    <TableHead>Timestamp</TableHead>
-                    <TableHead>Platform</TableHead>
-                    <TableHead>User Agent</TableHead>
+                    <TableHead className="w-[120px]">Provider</TableHead>
+                    <TableHead className="w-[180px]">Timestamp</TableHead>
+                    <TableHead className="w-[100px]">Platform</TableHead>
+                    <TableHead>Details</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {logs.map((log) => (
+                  {records.map((log) => (
                     <TableRow key={log.id}>
                       <TableCell className="font-medium capitalize">{log.provider}</TableCell>
                       <TableCell>{new Date(log.timestamp).toLocaleString()}</TableCell>
-                      <TableCell>{getPlatform(log.ua)}</TableCell>
-                      <TableCell className="text-xs text-muted-foreground max-w-xs truncate">
-                        {log.ua}
+                      <TableCell>{getPlatform(log.ua || '')}</TableCell>
+                      <TableCell className="text-xs text-muted-foreground">
+                        <div className="flex flex-col gap-2">
+                           <p><strong>Pickup:</strong> {log.pickup ? `${log.pickup.name} (${log.pickup.lat}, ${log.pickup.lng})` : 'N/A'}</p>
+                           <p><strong>Drop:</strong> {log.drop ? `${log.drop.name} (${log.drop.lat}, ${log.drop.lng})` : 'N/A'}</p>
+                           
+                           <TooltipProvider>
+                            <Tooltip>
+                                <TooltipTrigger asChild>
+                                    <p className="truncate"><strong>App URL:</strong> {log.attemptedAppUrl || 'N/A'}</p>
+                                </TooltipTrigger>
+                                <TooltipContent className="max-w-md">
+                                    <p className="break-all">{log.attemptedAppUrl}</p>
+                                </TooltipContent>
+                            </Tooltip>
+                           </TooltipProvider>
+
+                           <TooltipProvider>
+                            <Tooltip>
+                                <TooltipTrigger asChild>
+                                     <p className="truncate"><strong>Web URL:</strong> {log.attemptedWebUrl || 'N/A'}</p>
+                                </TooltipTrigger>
+                                <TooltipContent className="max-w-md">
+                                    <p className="break-all">{log.attemptedWebUrl}</p>
+                                </TooltipContent>
+                            </Tooltip>
+                           </TooltipProvider>
+                           
+                           <TooltipProvider>
+                            <Tooltip>
+                                <TooltipTrigger asChild>
+                                    <p className="truncate"><strong>User Agent:</strong> {log.ua || 'N/A'}</p>
+                                </TooltipTrigger>
+                                <TooltipContent className="max-w-md">
+                                    <p className="break-all">{log.ua}</p>
+                                </TooltipContent>
+                            </Tooltip>
+                           </TooltipProvider>
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))}
