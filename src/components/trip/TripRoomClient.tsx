@@ -7,6 +7,13 @@ import useTripRealtime from "@/hooks/useTripRealtime";
 import useLiveLocation from "@/hooks/useLiveLocation";
 import { getTrip } from "@/lib/storeAdapter";
 
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Button } from '@/components/ui/button';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Users, LocateFixed } from 'lucide-react';
+import { ScrollArea } from '../ui/scroll-area';
+
 // Dynamic import prevents SSR rendering of map controller
 const TomTomMapController = dynamic(
   () => import('@/components/trip/TomTomMapController'),
@@ -27,8 +34,10 @@ const TomTomMapController = dynamic(
 type Participant = {
   id: string;
   name?: string;
-  avatar?: string | null;
-  coords?: { lat: number; lon: number };
+  avatarUrl?: string;
+  lat?: number;
+  lng?: number;
+  coords?: { lat: number; lng: number };
 };
 
 type Props = {
@@ -70,24 +79,29 @@ export default function TripRoomClient({ tripId, currentUser, initialTrip = null
   // Data Transformation
   // ----------------------------
   const participantsForMap = useMemo(() => {
-    return (realtimeParticipants || []).map((p: any) => ({
-      id: p.id,
-      name: p.name || "Unknown",
-      avatar: p.avatarUrl || null,
-      coords: p.coords ? { lat: p.coords.lat, lon: p.coords.lng } : undefined,
-    })) as Participant[];
+    const participantObj: Record<string, Participant> = {};
+    (realtimeParticipants || []).forEach((p: any) => {
+      if (p && p.id && p.coords) {
+        participantObj[p.id] = {
+          id: p.id,
+          name: p.name || "Unknown",
+          avatarUrl: p.avatarUrl,
+          lat: p.coords.lat,
+          lng: p.coords.lng,
+        };
+      }
+    });
+    return participantObj;
   }, [realtimeParticipants]);
-
+  
   const friendsETAList = useMemo(() => {
-    return participantsForMap
+    return Object.values(participantsForMap)
       .map((p) => {
         const e = participantETAs[p.id] || { etaSeconds: null, distanceMeters: null };
         return {
-          id: p.id,
-          name: p.name,
+          ...p,
           etaSeconds: e.etaSeconds,
           distanceMeters: e.distanceMeters,
-          coords: p.coords ? {lat: p.coords.lat, lng: p.coords.lon } : undefined,
         };
       })
       .sort((a, b) => {
@@ -122,107 +136,66 @@ export default function TripRoomClient({ tripId, currentUser, initialTrip = null
     return `${hours}h ${rem}m`;
   };
 
+  const handleFollow = (id: string) => {
+    setFollowId(id);
+    setTimeout(() => setFollowId(null), 3000);
+  }
+
   // ----------------------------
   // Render
   // ----------------------------
   return (
-    <div className='w-full h-full flex' style={{ minHeight: 360 }}>
+    <div className='w-full h-full flex bg-background' style={{ minHeight: 360 }}>
       {/* Left: Map (flex-grow) */}
-      <div style={{ flex: 1, minHeight: 360 }}>
+      <div className='flex-1 min-h-full'>
         <TomTomMapController
-          destination={{
-              ...tripMeta?.destination,
-              coords: tripMeta?.destination ? { lon: tripMeta.destination.lng, lat: tripMeta.destination.lat } : undefined,
-          }}
           participants={participantsForMap}
           computeRoutes={true}
           onParticipantETA={handleParticipantETA}
           followId={followId}
+          initialCenter={tripMeta?.destination ? { lat: tripMeta.destination.lat, lng: tripMeta.destination.lng } : undefined}
         />
       </div>
 
       {/* Right: Sidebar */}
-      <aside
-        style={{
-          width: 320,
-          borderLeft: '1px solid #e6e6e6',
-          padding: 12,
-          background: '#f7fafc',
-          overflowY: 'auto',
-        }}
-      >
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-          <h4 style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>Participants</h4>
-          <div style={{ fontSize: 12, color: '#666' }}>{status === 'connecting' ? 'Loading...' : friendsETAList.length}</div>
-        </div>
-
-        {/* Participant list */}
-        <div>
-          {friendsETAList.length === 0 ? (
-            <div style={{ padding: 8, color: '#777' }}>Waiting for participant locations...</div>
-          ) : (
-            friendsETAList.map((p) => {
-              const eta = participantETAs[p.id];
-              return (
-                <div
-                  key={p.id}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 10,
-                    padding: 8,
-                    borderRadius: 8,
-                    marginBottom: 8,
-                    border: '1px solid #f0f0f0',
-                    background: 'white'
-                  }}
-                >
-                  <div
-                    style={{
-                      width: 42,
-                      height: 42,
-                      borderRadius: 8,
-                      background: '#f8fafc',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      fontWeight: 700,
-                      color: '#3b82f6',
-                      fontSize: 13,
-                    }}
-                  >
-                    {(p.name || '??').slice(0, 2).toUpperCase()}
-                  </div>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontWeight: 600 }}>{p.name || 'Unnamed'}</div>
-                    <div style={{ fontSize: 12, color: '#666' }}>
-                      {eta ? `${Math.round(eta.distanceMeters ?? 0)} m • ${formatETA(eta.etaSeconds)}` : 'ETA —'}
-                    </div>
-                  </div>
-
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                    <button
-                      onClick={() => {
-                        setFollowId(p.id);
-                        setTimeout(() => setFollowId(null), 3000);
-                      }}
-                      style={{
-                        fontSize: 12,
-                        padding: '6px 8px',
-                        borderRadius: 6,
-                        border: '1px solid #e6e6e6',
-                        background: '#fff',
-                        cursor: 'pointer',
-                      }}
-                    >
-                      Follow
-                    </button>
-                  </div>
+      <aside className="w-80 border-l p-4 bg-background flex flex-col">
+        <CardHeader className="p-2">
+            <CardTitle className="flex items-center gap-2 text-lg">
+                <Users className="text-primary" /> Participants ({friendsETAList.length})
+            </CardTitle>
+        </CardHeader>
+        <CardContent className="p-0 flex-1">
+            <ScrollArea className="h-full pr-4">
+                <div className="space-y-3">
+                {status === 'connecting' ? (
+                    Array.from({length: 3}).map((_, i) => <Skeleton key={i} className="h-16 w-full" />)
+                ) : friendsETAList.length === 0 ? (
+                    <div className="text-center text-muted-foreground p-8">Waiting for participant locations...</div>
+                ) : (
+                    friendsETAList.map((p) => {
+                    const eta = participantETAs[p.id];
+                    return (
+                        <Card key={p.id} className="p-3 flex items-center gap-3">
+                            <Avatar>
+                                <AvatarImage src={p.avatarUrl} alt={p.name} />
+                                <AvatarFallback>{p.name?.slice(0,2).toUpperCase()}</AvatarFallback>
+                            </Avatar>
+                            <div className="flex-1">
+                                <div className="font-semibold">{p.name || 'Unnamed'}</div>
+                                <div className="text-xs text-muted-foreground">
+                                {eta ? `${(eta.distanceMeters! / 1000).toFixed(1)} km • ${formatETA(eta.etaSeconds)}` : 'Calculating ETA...'}
+                                </div>
+                            </div>
+                            <Button size="icon" variant="ghost" onClick={() => handleFollow(p.id)}>
+                                <LocateFixed className="h-4 w-4" />
+                            </Button>
+                        </Card>
+                    );
+                    })
+                )}
                 </div>
-              );
-            })
-          )}
-        </div>
+            </ScrollArea>
+        </CardContent>
       </aside>
     </div>
   );

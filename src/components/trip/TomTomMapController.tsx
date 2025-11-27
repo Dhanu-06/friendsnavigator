@@ -2,6 +2,7 @@
 "use client";
 
 import React, { useEffect, useRef, useState } from "react";
+import { cn } from "@/lib/utils";
 
 /*
 TomTomMapController.tsx
@@ -11,7 +12,7 @@ Client-only, SSR-safe TomTom map controller for Next.js App Router.
 Props:
  - participants: Record<string, { id:string; name:string; lat:number; lng:number }>
  - computeRoutes?: boolean (when true, component polls /api/matrix-eta every 5s)
- - onParticipantETA?: (id: string, data: { etaSeconds: number; distanceMeters: number }) => void
+ - onParticipantETA?: (id: string, data: { etaSeconds: number | null; distanceMeters: number | null }) => void
  - followId?: string | null  (optional participant id to follow/center map on)
  - className?: string (optional wrapper className)
 
@@ -140,52 +141,46 @@ export default function TomTomMapController({
     const map = ttMapRef.current;
 
     const existingIds = new Set(markersRef.current.keys());
+    const currentParticipants = Object.values(participants);
 
     // add/update markers
-    Object.values(participants).forEach((p) => {
+    currentParticipants.forEach((p) => {
+      if (!p || !p.id) return;
       existingIds.delete(p.id);
       const existing = markersRef.current.get(p.id);
+      
+      const lat = p.lat;
+      const lng = p.lng;
+      if(typeof lat !== 'number' || typeof lng !== 'number') return;
+
+
       if (!existing) {
         // create DOM element for marker
         const el = document.createElement("div");
-        el.className = "tt-participant-marker";
-        el.style.width = "28px";
-        el.style.height = "28px";
-        el.style.borderRadius = "50%";
-        el.style.display = "flex";
-        el.style.justifyContent = "center";
-        el.style.alignItems = "center";
-        el.style.boxShadow = "0 2px 6px rgba(0,0,0,0.3)";
-        el.style.background = "white";
-        el.style.border = "2px solid #1E90FF";
-        el.style.fontSize = "12px";
-        el.style.fontWeight = "600";
-        el.style.color = "#1E90FF";
+        el.className = "size-7 rounded-full flex items-center justify-center shadow-lg bg-background border-2 border-primary text-primary text-xs font-semibold";
         el.innerText = (p.name || "?").slice(0, 2).toUpperCase();
 
-        const marker = new (window as any).tt.Marker({ element: el }).setLngLat([p.lng, p.lat]).addTo(map);
+        const marker = new (window as any).tt.Marker({ element: el }).setLngLat([lng, lat]).addTo(map);
 
         // popup
         const popupEl = document.createElement("div");
-        popupEl.className = "tt-popup-content";
-        popupEl.style.padding = "6px 8px";
-        popupEl.style.fontSize = "13px";
+        popupEl.className = "p-2 text-sm font-semibold";
         popupEl.innerText = `${p.name}`;
 
-        const popup = new (window as any).tt.Popup({ offset: 10 }).setDOMContent(popupEl);
+        const popup = new (window as any).tt.Popup({ offset: 15 }).setDOMContent(popupEl);
         marker.setPopup(popup);
 
         markersRef.current.set(p.id, {
           marker,
           el,
           popupEl,
-          current: { lat: p.lat, lng: p.lng },
+          current: { lat: lat, lng: lng },
         });
       } else {
         // update target coordinates for animation
-        existing.target = { lat: p.lat, lng: p.lng };
+        existing.target = { lat: lat, lng: lng };
         // if marker has a popup, update name
-        if (existing.popupEl && existing.popupEl.innerText !== p.name) {
+        if (existing.popupEl && !existing.popupEl.innerText.includes(p.name)) {
           existing.popupEl.innerText = p.name;
         }
       }
@@ -256,7 +251,7 @@ export default function TomTomMapController({
     // optionally center map on followId
     if (followId && markersRef.current.has(followId)) {
       const d = markersRef.current.get(followId);
-      if (d) {
+      if (d && d.current) {
         try {
           map.easeTo({ center: [d.current.lng, d.current.lat], duration: 700 });
         } catch (e) {}
@@ -299,7 +294,7 @@ export default function TomTomMapController({
   async function fetchAndDispatchETAs() {
     try {
       // prepare participants payload (array)
-      const list = Object.values(participants).map((p) => ({ id: p.id, lat: p.lat, lng: p.lng }));
+      const list = Object.values(participants).filter(p => p && typeof p.lat === 'number').map((p) => ({ id: p.id, lat: p.lat, lng: p.lng }));
       if (list.length === 0) return;
 
       const res = await fetch("/api/matrix-eta", {
@@ -363,15 +358,18 @@ export default function TomTomMapController({
       else if (typeof json === "object") {
         // detect if object keys look like ids mapped to value objects
         const maybeIds = Object.keys(json);
-        const looksLikeMap = maybeIds.length > 0 && typeof json[maybeIds[0]] === "object" && (json[maybeIds[0]].etaSeconds || json[maybeIds[0]].distanceMeters || json[maybeIds[0]].duration);
-        if (looksLikeMap) {
-          Object.entries(json).forEach(([id, val]) => {
-            if (!val) return;
-            normalized[id] = {
-              etaSeconds: (val as any).etaSeconds ?? (val as any).durationSeconds ?? (val as any).duration ?? null,
-              distanceMeters: (val as any).distanceMeters ?? (val as any).distance ?? null,
-            } as any;
-          });
+        if (maybeIds.length > 0 && typeof json[maybeIds[0]] === "object") {
+            const firstVal = json[maybeIds[0]];
+            const looksLikeMap = firstVal.hasOwnProperty('etaSeconds') || firstVal.hasOwnProperty('distanceMeters') || firstVal.hasOwnProperty('duration');
+            if (looksLikeMap) {
+                Object.entries(json).forEach(([id, val]) => {
+                if (!val) return;
+                normalized[id] = {
+                    etaSeconds: (val as any).etaSeconds ?? (val as any).durationSeconds ?? (val as any).duration ?? null,
+                    distanceMeters: (val as any).distanceMeters ?? (val as any).distance ?? null,
+                } as any;
+                });
+            }
         }
       }
 
@@ -389,7 +387,7 @@ export default function TomTomMapController({
             // preserve name (left of '|') if present else just name
             const baseName = (participants[id] && participants[id].name) || data.popupEl.innerText.split("|", 1)[0].trim();
             const etaText = (typeof val.etaSeconds === "number") ? formatETA(val.etaSeconds) : "--";
-            data.popupEl.innerText = `${baseName} | ETA: ${etaText}`;
+            data.popupEl.innerHTML = `<div class="font-semibold">${baseName}</div><div class="text-xs text-muted-foreground">ETA: ${etaText}</div>`;
           }
         } catch (e) {
           // swallow per-participant errors to avoid breaking the whole loop
@@ -398,7 +396,7 @@ export default function TomTomMapController({
 
     } catch (e) {
       // swallow errors silently in polling to avoid noisy console in production
-      // you can temporarily add console.warn('ETA poll error', e) while debugging
+      // console.warn("ETA poll error", e);
     }
   }
 
@@ -412,11 +410,11 @@ export default function TomTomMapController({
   }
 
   return (
-    <div className={className} style={{ width: "100%", height: "100%", position: "relative" }}>
-      <div ref={mapRef} style={{ width: "100%", height: "100%" }} />
+    <div className={cn("w-full h-full relative", className)}>
+      <div ref={mapRef} className="w-full h-full" />
       {/* optional: show small readiness indicator */}
       {!isReady && (
-        <div style={{ position: "absolute", left: 8, top: 8, background: "rgba(255,255,255,0.9)", padding: "6px 8px", borderRadius: 6, fontSize: 12, boxShadow: "0 1px 4px rgba(0,0,0,0.2)" }}>
+        <div className="absolute left-2 top-2 bg-background/80 backdrop-blur-sm p-2 rounded-md text-xs shadow-md">
           Loading map...
         </div>
       )}
