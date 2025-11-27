@@ -4,17 +4,20 @@
 import React, { useEffect, useRef } from "react";
 
 type LatLng = { lat: number; lon: number };
-type Participant = { id: string; name?: string; avatar?: string | null; coords?: LatLng };
+type Participant = { id: string; name?: string; avatar?: string | null; coords?: LatLng; lat?: number; lng?: number; };
 
 type Props = {
   origin?: any;
   destination?: any;
-  participants?: Participant[];
+  participants?: Participant[] | Record<string, Participant>;
   // If true, the controller will call /api/matrix-eta for ETAs and show them on popups
   computeRoutes?: boolean;
   // called when ETA for a participant is known: (id, {etaSeconds, distanceMeters})
   onParticipantETA?: (id: string, info: { etaSeconds: number | null; distanceMeters: number | null }) => void;
   style?: React.CSSProperties;
+  followId?: string | null;
+  initialCenter?: { lat: number, lng: number };
+  initialZoom?: number;
 };
 
 /**
@@ -81,10 +84,13 @@ function latLonToArray(c?: LatLng) {
 export default function TomTomMapController({
   origin,
   destination,
-  participants = [],
+  participants: participantsProp = [],
   computeRoutes = false,
   onParticipantETA,
   style,
+  followId,
+  initialCenter = { lat: 12.9716, lng: 77.5946 },
+  initialZoom = 12,
 }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<any>(null);
@@ -92,6 +98,10 @@ export default function TomTomMapController({
   const popupRef = useRef<Map<string, any>>(new Map());
   const animationRefs = useRef<Map<string, number>>(new Map());
   const matrixTimerRef = useRef<number | null>(null);
+
+  const participants = useMemo(() => {
+    return Array.isArray(participantsProp) ? participantsProp : Object.values(participantsProp);
+  }, [participantsProp]);
 
   // Smoothly move marker from start to end in ms duration
   function animateMarker(marker: any, from: { lat: number; lng: number }, to: { lat: number; lng: number }, duration = 900) {
@@ -122,10 +132,13 @@ export default function TomTomMapController({
 
   // Upsert marker for participant
   function upsertParticipantMarker(tt: any, p: Participant) {
-    if (!p?.coords) return;
+    const lat = p.coords?.lat ?? p.lat;
+    const lon = p.coords?.lon ?? p.lng;
+    if (typeof lat !== 'number' || typeof lon !== 'number') return;
+    
     const id = p.id;
     const existing = markersRef.current.get(id);
-    const latlng = { lat: p.coords.lat, lng: p.coords.lon };
+    const latlng = { lat: lat, lng: lon };
     if (existing) {
       // animate to new pos
       try {
@@ -193,7 +206,7 @@ export default function TomTomMapController({
   }
 
   // Call matrix endpoint server-side via our API to get ETAs to destination
-  async function fetchETAs(origins: { id: string; lat: number; lon: number }[], dest: { lat: number; lon: number }) {
+  async function fetchETAs(origins: { id: string; lat: number; lng: number }[], dest: { lat: number; lng: number }) {
     try {
       const res = await fetch("/api/matrix-eta", {
         method: "POST",
@@ -221,38 +234,14 @@ export default function TomTomMapController({
     if (Array.isArray(matrixJson.results)) {
       for (const r of matrixJson.results) {
         const id = r.id;
+        const participant = participants.find(p => p.id === id);
+        const name = participant?.name || id;
         const etaSec = r.etaSeconds ?? null;
         const dist = r.distanceMeters ?? null;
         const pop = popupRef.current.get(id);
         if (pop) {
           const etaText = etaSec ? `${Math.round(etaSec / 60)} min` : "—";
-          pop.setHTML(`<div style="font-weight:700">${id}</div><div style="font-size:12px">ETA: ${etaText}</div><div style="font-size:11px;color:#666">${dist ? `${(dist/1000).toFixed(1)} km` : ""}</div>`);
-        }
-        if (onParticipantETA) onParticipantETA(id, { etaSeconds: etaSec, distanceMeters: dist });
-      }
-    } else if (matrixJson && matrixJson.results === undefined && matrixJson.results?.length === 0 && matrixJson.raw) {
-      // try raw
-    } else if (matrixJson && matrixJson.raw && Array.isArray(matrixJson.raw.results)) {
-      for (const r of matrixJson.raw.results) {
-        const id = r.id;
-        const etaSec = r.etaSeconds ?? null;
-        const dist = r.distanceMeters ?? null;
-        const pop = popupRef.current.get(id);
-        if (pop) {
-          const etaText = etaSec ? `${Math.round(etaSec / 60)} min` : "—";
-          pop.setHTML(`<div style="font-weight:700">${id}</div><div style="font-size:12px">ETA: ${etaText}</div><div style="font-size:11px;color:#666">${dist ? `${(dist/1000).toFixed(1)} km` : ""}</div>`);
-        }
-        if (onParticipantETA) onParticipantETA(id, { etaSeconds: etaSec, distanceMeters: dist });
-      }
-    } else if (matrixJson && Array.isArray(matrixJson)) {
-      for (const r of matrixJson) {
-        const id = r.id;
-        const etaSec = r.etaSeconds ?? null;
-        const dist = r.distanceMeters ?? null;
-        const pop = popupRef.current.get(id);
-        if (pop) {
-          const etaText = etaSec ? `${Math.round(etaSec / 60)} min` : "—";
-          pop.setHTML(`<div style="font-weight:700">${id}</div><div style="font-size:12px">ETA: ${etaText}</div><div style="font-size:11px;color:#666">${dist ? `${(dist/1000).toFixed(1)} km` : ""}</div>`);
+          pop.setHTML(`<div style="font-weight:700">${name}</div><div style="font-size:12px">ETA: ${etaText}</div><div style="font-size:11px;color:#666">${dist ? `${(dist/1000).toFixed(1)} km` : ""}</div>`);
         }
         if (onParticipantETA) onParticipantETA(id, { etaSeconds: etaSec, distanceMeters: dist });
       }
@@ -278,16 +267,16 @@ export default function TomTomMapController({
       }
 
       // pick key from PUBLIC env when client needs tiles
-      const clientKey = (process.env.NEXT_PUBLIC_TOMTOM_KEY || process.env.NEXT_TOMTOM_KEY || process.env.NEXT_PUBLIC_TOMTOM_KEY) as string | undefined;
+      const clientKey = (process.env.NEXT_PUBLIC_TOMTOM_KEY) as string | undefined;
       if (!clientKey) {
-        console.warn("No TomTom client key found in NEXT_PUBLIC_TOMTOM_KEY or NEXT_TOMTOM_KEY. Map tiles might not load correctly.");
+        console.warn("No TomTom client key found in NEXT_PUBLIC_TOMTOM_KEY. Map tiles might not load correctly.");
       }
 
       const map = tt.map({
         key: clientKey || "",
         container: containerRef.current,
-        center: origin?.coords ? [origin.coords.lon, origin.coords.lat] : participants[0]?.coords ? [participants[0].coords.lon, participants[0].coords.lat] : [0, 0],
-        zoom: 12,
+        center: [initialCenter.lng, initialCenter.lat],
+        zoom: initialZoom,
       });
 
       mapRef.current = map;
@@ -296,51 +285,33 @@ export default function TomTomMapController({
       map.addControl(new tt.NavigationControl());
       map.addControl(new tt.FullscreenControl());
 
-      // Initial markers
-      for (const p of participants) {
-        upsertParticipantMarker(tt, p);
-      }
-
-      cleanupMarkers(participants.map((p) => p.id));
-
       // If destination is provided, add a destination marker
-      let destMarker: any = null;
       if (destination?.coords) {
         try {
-          destMarker = new tt.Marker({ color: "#ef4444" }).setLngLat([destination.coords.lon, destination.coords.lat]).addTo(map);
+          new tt.Marker({ color: "#ef4444" }).setLngLat([destination.coords.lon, destination.coords.lat]).addTo(map);
         } catch (e) {}
       }
 
-      // Ensure map fitting to bounds
-      try {
-        const coords = participants
-          .filter((p) => p.coords)
-          .map((p) => [p.coords!.lon, p.coords!.lat]) as [number, number][];
-        if (destination?.coords) coords.push([destination.coords.lon, destination.coords.lat]);
-        if (coords.length > 0) {
-          const bounds = coords.reduce((b: any, c) => {
-            return b.extend(c);
-          }, new tt.LngLatBounds(coords[0], coords[0]));
-          map.fitBounds(bounds, { padding: 80, maxZoom: 15 });
-        }
-      } catch {}
-
       // Matrix polling for ETAs
       async function matrixLoop() {
-        if (cancelled) return;
-        if (!computeRoutes) return;
-        // build origins from current markers
-        const origins = [];
-        for (const p of participants) {
-          if (p.coords && typeof p.coords.lat === "number") origins.push({ id: p.id, lat: p.coords.lat, lon: p.coords.lon });
-        }
-        const dest = destination?.coords ? { lat: destination.coords.lat, lon: destination.coords.lon } : null;
-        if (origins.length === 0 || !dest) {
-          matrixTimerRef.current = window.setTimeout(matrixLoop, 3000);
+        if (cancelled || !computeRoutes) return;
+
+        const pOrigins = participants.map(p => ({
+          id: p.id,
+          lat: p.coords?.lat ?? p.lat,
+          lng: p.coords?.lon ?? p.lng,
+        })).filter(p => typeof p.lat === 'number' && typeof p.lng === 'number');
+
+        const dest = destination?.coords ? { lat: destination.coords.lat, lng: destination.coords.lon } : null;
+
+        if (pOrigins.length === 0 || !dest) {
+          matrixTimerRef.current = window.setTimeout(matrixLoop, 5000);
           return;
         }
-        const j = await fetchETAs(origins, dest);
+
+        const j = await fetchETAs(pOrigins, dest);
         if (j) updateETAPopups(j);
+
         matrixTimerRef.current = window.setTimeout(matrixLoop, 5000);
       }
 
@@ -352,56 +323,61 @@ export default function TomTomMapController({
       // Cleanup on unmount
       return () => {
         cancelled = true;
-        try {
-          if (matrixTimerRef.current) {
-            clearTimeout(matrixTimerRef.current);
-            matrixTimerRef.current = null;
-          }
-          // remove markers
-          for (const m of markersRef.current.values()) {
-            try {
-              m.remove();
-            } catch {}
-          }
-          markersRef.current.clear();
-          // remove map
-          if (mapRef.current) {
-            try {
-              mapRef.current.remove();
-            } catch {}
-            mapRef.current = null;
-          }
-        } catch (e) {}
+        if (matrixTimerRef.current) clearTimeout(matrixTimerRef.current);
+        if (mapRef.current) {
+          try { mapRef.current.remove(); } catch {}
+          mapRef.current = null;
+        }
       };
     }
 
-    const cleanupPromise = setup();
+    setup();
 
     return () => {
-      // cancel any background timers/animations
       for (const a of animationRefs.current.values()) cancelAnimationFrame(a);
       animationRefs.current.clear();
-      // clear timers
-      if (matrixTimerRef.current) {
-        clearTimeout(matrixTimerRef.current);
-        matrixTimerRef.current = null;
-      }
+      if (matrixTimerRef.current) clearTimeout(matrixTimerRef.current);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // initial mount only
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [computeRoutes, destination]);
 
   // Update markers when participants prop changes
   useEffect(() => {
-    // only run on client
     // @ts-ignore
     const tt = (window as any).tt;
     if (!tt || !mapRef.current) return;
+    
+    const pIds = participants.map((p) => p.id);
     for (const p of participants) {
       upsertParticipantMarker(tt, p);
     }
-    cleanupMarkers(participants.map((p) => p.id));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [participants.map((p) => (p.coords ? `${p.coords.lat},${p.coords.lon}` : p.id)).join("|")]);
+    cleanupMarkers(pIds);
+
+    const pToFollow = followId ? participants.find(p => p.id === followId) : undefined;
+    const followCoords = pToFollow?.coords ?? pToFollow;
+
+    if (followCoords && typeof followCoords.lat === 'number' && mapRef.current) {
+      mapRef.current.panTo([followCoords.lng ?? followCoords.lon, followCoords.lat], { duration: 1000 });
+    } else if (participants.length > 0) {
+      const coords = participants
+        .map((p) => {
+            const lat = p.coords?.lat ?? p.lat;
+            const lon = p.coords?.lon ?? p.lng;
+            return (typeof lat === 'number' && typeof lon === 'number') ? [lon, lat] : null;
+        })
+        .filter(Boolean) as [number, number][];
+
+      if (destination?.coords) coords.push([destination.coords.lon, destination.coords.lat]);
+      
+      if (coords.length > 0) {
+          try {
+            const bounds = coords.reduce((b: any, c) => b.extend(c), new tt.LngLatBounds(coords[0], coords[0]));
+            if(mapRef.current) mapRef.current.fitBounds(bounds, { padding: 80, maxZoom: 15 });
+          } catch(e) {}
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [participants, followId]);
 
   return <div ref={containerRef} style={{ width: "100%", height: "100%", minHeight: 420, ...style }} />;
 }

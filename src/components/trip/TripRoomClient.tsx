@@ -137,6 +137,7 @@ export default function TripRoomClient({ tripId, currentUser, initialTrip = null
           participants={participantsForMap}
           computeRoutes={true}
           onParticipantETA={handleParticipantETA}
+          followId={followId}
         />
       </div>
 
