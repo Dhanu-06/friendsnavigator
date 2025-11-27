@@ -5,7 +5,7 @@ type Coords = { lat: number; lng: number; name?: string };
 
 // Small helper: tries deep link, falls back to web URL after timeout.
 // Uses Android intent scheme for Uber if on Android.
-function openDeepLinkWithFallback(appUrl: string, webUrl: string, opts?: { useIntentAndroid?: boolean; packageName?: string }) {
+function openDeepLinkWithFallback(appUrl: string, webUrl:string, opts?: { useIntentAndroid?: boolean; packageName?: string }) {
   const ua = navigator.userAgent || '';
   const isAndroid = /Android/i.test(ua);
   const isIOS = /iPhone|iPad|iPod/i.test(ua);
@@ -19,10 +19,8 @@ function openDeepLinkWithFallback(appUrl: string, webUrl: string, opts?: { useIn
       const url = new URL(appUrl);
       const scheme = url.protocol.replace(':', '');
       const hostAndPath = appUrl.replace(`${scheme}://`, '');
-      const intentUri = `intent://${hostAndPath}#Intent;scheme=${scheme};package=${opts.packageName};end`;
+      const intentUri = `intent://${hostAndPath}#Intent;scheme=${scheme};package=${opts.packageName};S.browser_fallback_url=${encodeURIComponent(webUrl)};end`;
       window.location.href = intentUri;
-      // fallback to web after 1.2s
-      setTimeout(() => { window.location.href = webUrl; }, 1200);
       return;
     } catch (e) {
       // continue to default behavior
@@ -101,17 +99,19 @@ export function buildOlaLinks(pickup?: Coords, drop?: Coords) {
   }
 
   // Ola app scheme — varies by version; we provide a common attempt
-  const app = new URL('olacabs://book/?');
+  const app = new URL('olacabs://book/new');
   if (pickup) {
     app.searchParams.set('pickup_lat', String(pickup.lat));
     app.searchParams.set('pickup_lng', String(pickup.lng));
-    if (pickup.name) app.searchParams.set('pickup', pickup.name);
+    if (pickup.name) app.searchParams.set('pickup_name', pickup.name);
   }
   if (drop) {
     app.searchParams.set('drop_lat', String(drop.lat));
     app.searchParams.set('drop_lng', String(drop.lng));
-    if (drop.name) app.searchParams.set('drop', drop.name);
+    if (drop.name) app.searchParams.set('drop_name', drop.name);
   }
+  app.searchParams.set('utm_source', 'friends-navigator-x');
+
 
   return {
     appUrl: app.toString(),
@@ -134,17 +134,25 @@ export function buildRapidoLinks(pickup?: Coords, drop?: Coords) {
     web.searchParams.set('drop_lng', String(drop.lng));
   }
 
-  const app = new URL('rapidobike://open');
-  if (pickup) app.searchParams.set('pickup_lat', String(pickup.lat));
-  if (pickup) app.searchParams.set('pickup_lng', String(pickup.lng));
-  if (drop) app.searchParams.set('drop_lat', String(drop.lat));
-  if (drop) app.searchParams.set('drop_lng', String(drop.lng));
+  const app = new URL('rapido://open');
+  if (pickup) {
+    app.searchParams.set('pickup_lat', String(pickup.lat));
+    app.searchParams.set('pickup_lng', String(pickup.lng));
+     if(pickup.name) app.searchParams.set('pickup_name', pickup.name);
+  }
+
+  if (drop) {
+    app.searchParams.set('drop_lat', String(drop.lat));
+    app.search_params.set('drop_lng', String(drop.lng));
+     if(drop.name) app.searchParams.set('drop_name', drop.name);
+  }
+
 
   return {
     appUrl: app.toString(),
     webUrl: web.toString(),
-    packageName: 'com.rapido.customer',
-    scheme: 'rapidobike',
+    packageName: 'com.rapido.passenger',
+    scheme: 'rapido',
   };
 }
 
