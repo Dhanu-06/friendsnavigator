@@ -14,26 +14,15 @@ import {
 } from '@/components/ui/card';
 import { ArrowRight, PlusCircle } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { getCurrentUser, type LocalUser } from '@/lib/localAuth';
 import type { Trip } from '@/lib/tripStore';
 import JoinTripPreview from '@/components/trip/JoinTripPreview';
 import { getTrip, joinTrip, getRecentTrips } from '@/lib/storeAdapter';
-
-function useLocalUser() {
-  const [user, setUser] = useState<LocalUser | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    setUser(getCurrentUser());
-    setLoading(false);
-  }, []);
-
-  return { user, loading };
-}
+import { useUser } from '@/firebase/auth/use-user';
+import type { User } from 'firebase/auth';
 
 export default function DashboardPage() {
   const router = useRouter();
-  const { user, loading } = useLocalUser();
+  const { user, loading } = useUser();
   const [recentTrips, setRecentTrips] = useState<Trip[]>([]);
 
   useEffect(() => {
@@ -51,6 +40,17 @@ export default function DashboardPage() {
   if (loading) {
     return <div className="flex h-screen items-center justify-center">Loading...</div>
   }
+  
+  if (!user) {
+    router.push('/auth/login');
+    return null;
+  }
+
+  const currentUser = {
+    uid: user.uid,
+    name: user.displayName || user.email || 'Anonymous',
+    email: user.email!,
+  };
 
   return (
     <div className="bg-gray-50/50 dark:bg-black/50 min-h-screen">
@@ -62,7 +62,7 @@ export default function DashboardPage() {
       <main className="container py-8">
         <div className="mb-8">
           <h2 className="text-3xl font-bold font-heading">
-            Welcome back, {user?.name ?? 'Friend'} 👋
+            Welcome back, {currentUser.name} 👋
           </h2>
           <p className="text-muted-foreground">
             Ready for your next adventure?
@@ -90,13 +90,13 @@ export default function DashboardPage() {
           
           {user && (
             <JoinTripPreview 
-              currentUser={user}
+              currentUser={currentUser}
               fetchTripByCode={async (code) => {
                 const res = await getTrip(code);
                 return res.data;
               }}
-              joinTrip={async (tripId, user) => {
-                await joinTrip(tripId, user);
+              joinTrip={async (tripId, userToJoin) => {
+                await joinTrip(tripId, userToJoin);
               }}
               onJoinSuccess={handleJoinSuccess}
             />

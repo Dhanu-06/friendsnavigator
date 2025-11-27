@@ -2,7 +2,6 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { signInLocal } from '@/lib/localAuth';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -10,6 +9,8 @@ import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import Link from 'next/link';
 import { Navigation } from 'lucide-react';
+import { useAuth } from '@/firebase/provider';
+import { signInWithEmailAndPassword } from 'firebase/auth';
 
 
 export default function LoginPage() {
@@ -18,18 +19,29 @@ export default function LoginPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
+  const auth = useAuth();
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
+
+    if (!auth) {
+        setError("Auth service is not available. Please try again later.");
+        return;
+    }
+
     try {
       setBusy(true);
-      await signInLocal(email, password);
+      await signInWithEmailAndPassword(auth, email, password);
       setBusy(false);
       router.push('/dashboard');
     } catch (err: any) {
       setBusy(false);
-      setError(err?.message ?? 'Failed to login');
+      let message = 'An unknown error occurred.';
+      if (err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password' || err.code === 'auth/invalid-credential') {
+          message = 'Invalid email or password. Please try again.';
+      }
+      setError(message);
     }
   }
 
@@ -90,10 +102,6 @@ export default function LoginPage() {
               >
                 Sign Up
               </Link>
-            </p>
-             <p className="mt-2 text-center text-[11px] text-slate-400 px-4">
-              Note: This login uses local browser storage (not Firebase) so it always works in this
-              environment.
             </p>
           </CardFooter>
         </form>

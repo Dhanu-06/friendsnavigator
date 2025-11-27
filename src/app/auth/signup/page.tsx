@@ -2,7 +2,6 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { signUpLocal } from '@/lib/localAuth';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -10,7 +9,11 @@ import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import Link from 'next/link';
 import { Navigation } from 'lucide-react';
-
+import { useAuth, useFirestore } from '@/firebase/provider';
+import { createUserWithEmailAndPassword } from 'firebase/auth';
+import { doc, setDoc } from 'firebase/firestore';
+import { errorEmitter } from '@/firebase/error-emitter';
+import { FirestorePermissionError } from '@/firebase/errors';
 
 export default function SignupPage() {
   const [name, setName] = useState('');
@@ -20,6 +23,8 @@ export default function SignupPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
+  const auth = useAuth();
+  const firestore = useFirestore();
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -30,15 +35,48 @@ export default function SignupPage() {
       return;
     }
 
+    if (!auth || !firestore) {
+        setError("Auth service is not available. Please try again later.");
+        return;
+    }
+
     try {
       setBusy(true);
-      await signUpLocal(name, email, password);
+      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+      const user = userCredential.user;
+
+      if (user) {
+        const userProfile = {
+          id: user.uid,
+          name: name,
+          email: user.email,
+          avatarUrl: user.photoURL || `https://i.pravatar.cc/150?u=${user.uid}`,
+        };
+        const userDocRef = doc(firestore, 'users', user.uid);
+        
+        setDoc(userDocRef, userProfile, { merge: true }).catch(async (err) => {
+          const permissionError = new FirestorePermissionError({
+            path: userDocRef.path,
+            operation: 'create',
+            requestResourceData: userProfile,
+          });
+          errorEmitter.emit('permission-error', permissionError);
+          // Log locally but don't block user flow
+          console.error("Failed to create user profile in Firestore.", err);
+        });
+      }
+
       setBusy(false);
-      // For demo: go to dashboard after signup
       router.push('/dashboard');
     } catch (err: any) {
       setBusy(false);
-      setError(err?.message ?? 'Failed to sign up');
+      let message = 'An unknown error occurred.';
+      if (err.code === 'auth/email-already-in-use') {
+          message = 'This email is already in use. Please login or use a different email.';
+      } else if (err.code === 'auth/weak-password') {
+          message = 'The password is too weak. Please use at least 6 characters.';
+      }
+      setError(message);
     }
   }
 
@@ -119,10 +157,6 @@ export default function SignupPage() {
               >
                 Login
               </Link>
-            </p>
-             <p className="mt-2 text-center text-[11px] text-slate-400 px-4">
-              Note: In this dev environment we are using local browser storage, not real Firebase
-              Auth. The final app will use Firebase.
             </p>
           </CardFooter>
         </form>

@@ -3,10 +3,10 @@
 
 import React from 'react';
 import dynamic from 'next/dynamic';
-import { useParams } from 'next/navigation';
-import { getCurrentUser, type LocalUser } from '@/lib/localAuth';
+import { useParams, useRouter } from 'next/navigation';
 import useLiveLocation from '@/hooks/useLiveLocation';
 import useTripRealtime from '@/hooks/useTripRealtime';
+import { useUser } from '@/firebase/auth/use-user';
 
 const TripRoomClient = dynamic(() => import('@/components/trip/TripRoomClient'), {
   ssr: false,
@@ -15,20 +15,17 @@ const TripRoomClient = dynamic(() => import('@/components/trip/TripRoomClient'),
 
 export default function TripPage() {
   const params = useParams();
+  const router = useRouter();
   const tripId = Array.isArray(params.tripId) ? params.tripId[0] : params.tripId;
-  const localUser = getCurrentUser();
+  const { user, loading: userLoading } = useUser();
 
-  const currentUser: { id: string; name: string; avatarUrl: string } = localUser
+  const currentUser = user 
     ? {
-        id: localUser.uid,
-        name: localUser.name,
-        avatarUrl: `https://i.pravatar.cc/150?u=${localUser.uid}`,
+        id: user.uid,
+        name: user.displayName || user.email || 'Anonymous',
+        avatarUrl: user.photoURL || `https://i.pravatar.cc/150?u=${user.uid}`,
       }
-    : {
-        id: 'guest-' + Math.random().toString(36).slice(2, 9),
-        name: 'Guest',
-        avatarUrl: `https://i.pravatar.cc/150?u=guest`,
-      };
+    : null;
 
   const {
     participants,
@@ -51,13 +48,23 @@ export default function TripPage() {
         ...currentUser,
         lat: lastPosition.lat,
         lng: lastPosition.lng,
-        coords: lastPosition,
+        coords: { lat: lastPosition.lat, lng: lastPosition.lng },
         updatedAt: Date.now(),
       };
       joinOrUpdateParticipant(participantUpdate);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lastPosition, currentUser?.id]);
+
+  if (userLoading) {
+    return <div className="flex h-screen w-full items-center justify-center">Authenticating...</div>;
+  }
+  
+  if (!currentUser) {
+    // Not authenticated, redirect to login
+    router.push('/auth/login');
+    return null; // Render nothing while redirecting
+  }
   
   if (!tripId) {
       return <div className="flex h-screen w-full items-center justify-center">Invalid Trip ID.</div>;

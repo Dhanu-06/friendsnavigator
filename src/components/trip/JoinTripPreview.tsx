@@ -15,9 +15,7 @@ import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Loader2, Users, Calendar, MapPin, CheckCircle } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { Badge } from '../ui/badge';
 import type { Trip } from '@/lib/tripStore';
-import type { LocalUser } from '@/lib/localAuth';
 
 type JoinTripPreviewProps = {
   fetchTripByCode: (code: string) => Promise<Trip | null>;
@@ -26,7 +24,7 @@ type JoinTripPreviewProps = {
     user: { id: string; name: string; avatarUrl?: string }
   ) => Promise<void>;
   onJoinSuccess: (tripId: string) => void;
-  currentUser: LocalUser;
+  currentUser: { uid: string; name: string; email: string; };
 };
 
 export default function JoinTripPreview({

@@ -15,7 +15,7 @@ import { OutstationModeSelector } from '@/components/create/OutstationModeSelect
 import { TripTypeToggle, TripType } from '@/components/create/TripTypeToggle';
 import { cn } from '@/lib/utils';
 import { saveTrip } from '@/lib/storeAdapter';
-import { getCurrentUser } from '@/lib/localAuth';
+import { useUser } from '@/firebase/auth/use-user';
 
 type TripData = {
   name: string;
@@ -32,6 +32,7 @@ export default function CreateTripPage() {
   const [createdTripId, setCreatedTripId] = useState<string | null>(null);
   const router = useRouter();
   const { toast } = useToast();
+  const { user } = useUser();
 
   const updateTripData = (data: Partial<TripData>) => {
     setTripData((prev) => ({ ...prev, ...data }));
@@ -41,9 +42,9 @@ export default function CreateTripPage() {
   const prevStep = () => setStep((s) => s - 1);
 
   const handleCreateTrip = async () => {
-    const user = getCurrentUser();
     if (!user) {
         toast({ title: 'Error', description: 'You must be logged in to create a trip.', variant: 'destructive' });
+        router.push('/auth/login');
         return;
     }
     
@@ -61,7 +62,7 @@ export default function CreateTripPage() {
         name: tripData.name!,
         destination: destination,
         tripType: tripData.tripType!,
-        participants: [{id: user.uid, name: user.name, avatarUrl: `https://i.pravatar.cc/150?u=${user.uid}`}],
+        participants: [{id: user.uid, name: user.displayName || user.email, avatarUrl: user.photoURL || `https://i.pravatar.cc/150?u=${user.uid}`}],
         messages: [],
         expenses: [],
         createdAt: Date.now(),
