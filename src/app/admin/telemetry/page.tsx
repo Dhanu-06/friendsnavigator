@@ -54,9 +54,9 @@ export default function RideClicksPageClient() {
         <CardHeader>
           <div className="flex justify-between items-start">
             <div>
-              <CardTitle>Ride Click Telemetry (In-Memory)</CardTitle>
+              <CardTitle>Ride Click Telemetry</CardTitle>
               <CardDescription>
-                Showing last {records.length} ride-hailing clicks. Updates every 3 seconds.
+                Showing last {records.length} ride-hailing clicks. Updates every 3 seconds. Reads from Firestore if configured, otherwise shows in-memory logs.
               </CardDescription>
             </div>
             <Button onClick={fetchLogs} disabled={loading} variant="outline">

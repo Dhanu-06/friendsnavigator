@@ -94,6 +94,38 @@ export async function POST(req: Request) {
 }
 
 export async function GET() {
+  tryInitAdmin();
+  // If firestore available, query persisted logs
+  if (firestore) {
+    try {
+      const querySnap = await firestore
+        .collection('ride_clicks')
+        .orderBy('createdAt', 'desc')
+        .limit(200)
+        .get();
+
+      const docs: any[] = [];
+      querySnap.forEach((d: any) => {
+        const data = d.data();
+        docs.push({
+          id: d.id,
+          provider: data.provider ?? null,
+          pickup: data.pickup ?? null,
+          drop: data.drop ?? null,
+          attemptedAppUrl: data.attemptedAppUrl ?? null,
+          attemptedWebUrl: data.attemptedWebUrl ?? null,
+          ua: data.ua ?? null,
+          timestamp: data.createdAt ? data.createdAt.toDate().getTime() : null,
+        });
+      });
+
+      return NextResponse.json({ ok: true, count: docs.length, records: docs });
+    } catch (e: any) {
+      console.warn('[ride-click] firestore read failed:', e?.message || e);
+      // fallthrough to in-memory
+    }
+  }
+
   const last = [...STORE].reverse();
   return NextResponse.json({ ok: true, count: last.length, records: last });
 }
