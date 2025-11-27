@@ -141,6 +141,20 @@
         "explanation": { "type": "string" }
       },
       "required": ["mode", "etaMinutes", "costEstimate"]
+    },
+    "RideClickLog": {
+      "title": "Ride Click Log",
+      "type": "object",
+      "description": "A log entry for a user clicking a ride-hailing button.",
+      "properties": {
+        "provider": { "type": "string" },
+        "pickup": { "type": "object", "properties": { "lat": { "type": "number" }, "lng": { "type": "number" }, "name": { "type": "string" } } },
+        "drop": { "type": "object", "properties": { "lat": { "type": "number" }, "lng": { "type": "number" }, "name": { "type": "string" } } },
+        "attemptedAppUrl": { "type": "string" },
+        "attemptedWebUrl": { "type": "string" },
+        "ua": { "type": "string" },
+        "timestamp": { "type": "number" }
+      }
     }
   },
   "auth": {
@@ -178,6 +192,14 @@
           "entityName": "Participant",
           "schema": { "$ref": "#/backend/entities/Participant" },
           "description": "Stores a user's status and travel choices for a specific trip. Other trip participants can read, but only the user can write to their own document."
+        }
+      },
+      {
+        "path": "/ride-clicks/{logId}",
+        "definition": {
+          "entityName": "RideClickLog",
+          "schema": { "$ref": "#/backend/entities/RideClickLog" },
+          "description": "Stores telemetry logs for ride-hailing button clicks. Generally, this should be write-only for clients."
         }
       }
     ]
