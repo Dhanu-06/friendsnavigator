@@ -1,3 +1,4 @@
+
 // AUTO-PATCHED firebaseClient.ts
 "use client";
 

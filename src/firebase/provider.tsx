@@ -1,3 +1,4 @@
+
 // src/firebase/provider.tsx
 "use client";
 
@@ -7,6 +8,7 @@ import type { FirebaseApp } from "firebase/app";
 import type { Auth } from "firebase/auth";
 import type { Firestore } from "firebase/firestore";
 import { FirebaseErrorListener } from '@/components/FirebaseErrorListener';
+import TempEmuCheck from "@/components/TempEmuCheck";
 
 
 type FirebaseContextType = {
@@ -33,6 +35,7 @@ export function FirebaseProvider({ children }: { children: React.ReactNode }) {
     <FirebaseContext.Provider value={memoizedValue}>
       {children}
       <FirebaseErrorListener />
+      <TempEmuCheck />
     </FirebaseContext.Provider>
   );
 }
