@@ -49,6 +49,8 @@ export default function TripRoomClient({
     return participants.reduce((acc, p) => {
       if (p.id && p.coords) {
         acc[p.id] = { ...p, lat: p.coords.lat, lng: p.coords.lng };
+      } else if (p.id && p.lat && p.lng) {
+        acc[p.id] = { ...p, coords: { lat: p.lat, lng: p.lng }, lat: p.lat, lng: p.lng };
       }
       return acc;
     }, {} as Record<string, Participant & { lat: number; lng: number }>);
@@ -62,7 +64,7 @@ export default function TripRoomClient({
     return participants.find(p => p.id === currentUser.id);
   }, [participants, currentUser.id]);
 
-  const destCoords = { lat: 13.3702, lng: 77.6835 }; // Mock Nandi Hills destination
+  const destCoords = { lat: 13.3702, lng: 77.6835 };
 
   const { name: pickupName, shortName: pickupShort } = useReverseGeocode(currentUserParticipant?.coords?.lat, currentUserParticipant?.coords?.lng);
   const { name: destName, shortName: destShort } = useReverseGeocode(destCoords.lat, destCoords.lng);
@@ -83,7 +85,7 @@ export default function TripRoomClient({
           text: msg.text,
           timestamp: msg.createdAt ? new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '',
           avatarUrl: msg.avatarUrl,
-      })).sort((a,b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+      })).sort((a,b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
   }, [messages, currentUser.id]);
 
   return (
@@ -118,7 +120,7 @@ export default function TripRoomClient({
                 <ParticipantsList participants={participants.map(p => ({
                     ...p,
                     eta: participantETAs[p.id] ? `${Math.round(participantETAs[p.id].etaSeconds / 60)} min` : '...',
-                    status: 'On the way', // Replace with real status
+                    status: 'On the way',
                 }))} />
              </Card>
           </TabsContent>

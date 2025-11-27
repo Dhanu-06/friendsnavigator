@@ -14,6 +14,8 @@ import {
 
 import { getFirebaseInstances } from '@/lib/firebaseClient';
 import { getTripLocal, saveTripLocal } from '@/lib/fallbackStore';
+import { errorEmitter } from '@/firebase/error-emitter';
+import { FirestorePermissionError } from '@/firebase/errors';
 
 export type Participant = {
   id: string;
@@ -25,7 +27,7 @@ export type Participant = {
   etaMinutes?: number;
   status?: string;
   coords?: { lat: number; lng: number };
-  updatedAt?: number | null;
+  updatedAt?: number | any;
 };
 
 export type Message = {
@@ -69,13 +71,11 @@ export default function useTripRealtime(
       return;
     }
 
-    // clear previous listeners
     unsubs.current.forEach((u) => u());
     unsubs.current = [];
 
     setStatus('connecting');
 
-    // Immediately load from local storage for instant UI
     try {
       const localTrip = getTripLocal(tripId);
       if (localTrip) {
@@ -113,7 +113,6 @@ export default function useTripRealtime(
             const arr: any[] = [];
             snapshot.forEach((doc) => {
               const data = doc.data();
-              // Convert Firestore Timestamps to JS Dates for serialization
               const serializableData: { [key: string]: any } = {};
               for (const key in data) {
                 if (data[key]?.toDate) {
@@ -125,7 +124,6 @@ export default function useTripRealtime(
               arr.push({ id: doc.id, ...serializableData });
             });
             setter(arr);
-            // Also update local storage to keep it in sync
             const trip = getTripLocal(tripId) || {
               id: tripId,
               participants: [],
@@ -136,14 +134,14 @@ export default function useTripRealtime(
             saveTripLocal(tripId, trip);
             setStatus('online');
           },
-          (err) => {
-            console.error(
-              `useTripRealtime (${colName}) snapshot error. Falling back to local.`,
-              err
-            );
+          async (err) => {
             setError(err);
             setStatus('offline');
-            // Data is already loaded from local, so no need to set state here again.
+            const permissionError = new FirestorePermissionError({
+              path: colRef.path,
+              operation: 'list',
+            });
+            errorEmitter.emit('permission-error', permissionError);
           }
         );
         unsubs.current.push(unsub);
@@ -178,13 +176,15 @@ export default function useTripRealtime(
     setParticipants([...trip.participants]);
 
     if ((status === 'online' || useEmulator) && firestoreRef.current) {
-      try {
-        await setDoc(doc(firestoreRef.current, 'trips', tripId, 'participants', p.id), p, {
-          merge: true,
+        const docRef = doc(firestoreRef.current, 'trips', tripId, 'participants', p.id);
+        setDoc(docRef, p, { merge: true }).catch(async (err) => {
+            const permissionError = new FirestorePermissionError({
+                path: docRef.path,
+                operation: 'update',
+                requestResourceData: p
+            });
+            errorEmitter.emit('permission-error', permissionError);
         });
-      } catch (e) {
-        console.warn('joinOrUpdateParticipant firestore error, already fell back to local.', e);
-      }
     }
   };
 
@@ -210,14 +210,18 @@ export default function useTripRealtime(
     setMessages([...trip.messages]);
 
     if ((status === 'online' || useEmulator) && firestoreRef.current) {
-      try {
-        await addDoc(collection(firestoreRef.current, 'trips', tripId, 'messages'), {
-          ...payload,
-          createdAt: serverTimestamp(),
+        const collRef = collection(firestoreRef.current, 'trips', tripId, 'messages');
+        addDoc(collRef, {
+            ...payload,
+            createdAt: serverTimestamp(),
+        }).catch(async (err) => {
+            const permissionError = new FirestorePermissionError({
+                path: collRef.path,
+                operation: 'create',
+                requestResourceData: payload
+            });
+            errorEmitter.emit('permission-error', permissionError);
         });
-      } catch (e) {
-        console.warn('sendMessage firestore error, already fell back to local.', e);
-      }
     }
   };
 
@@ -235,11 +239,15 @@ export default function useTripRealtime(
     setExpenses([...trip.expenses]);
 
     if ((status === 'online' || useEmulator) && firestoreRef.current) {
-      try {
-        await addDoc(collection(firestoreRef.current, 'trips', tripId, 'expenses'), payload);
-      } catch (e) {
-        console.warn('addExpense firestore error, already fell back to local.', e);
-      }
+        const collRef = collection(firestoreRef.current, 'trips', tripId, 'expenses');
+        addDoc(collRef, payload).catch(async (err) => {
+            const permissionError = new FirestorePermissionError({
+                path: collRef.path,
+                operation: 'create',
+                requestResourceData: payload
+            });
+            errorEmitter.emit('permission-error', permissionError);
+        });
     }
   };
 

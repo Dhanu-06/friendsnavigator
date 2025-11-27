@@ -18,7 +18,6 @@ export default function TripPage() {
   const tripId = Array.isArray(params.tripId) ? params.tripId[0] : params.tripId;
   const localUser = getCurrentUser();
 
-  // Define a user object, falling back to a guest identity if not logged in.
   const currentUser: { id: string; name: string; avatarUrl: string } = localUser
     ? {
         id: localUser.uid,
@@ -31,7 +30,6 @@ export default function TripPage() {
         avatarUrl: `https://i.pravatar.cc/150?u=guest`,
       };
 
-  // Subscribe to real-time trip data (participants, messages, expenses)
   const {
     participants,
     messages,
@@ -41,15 +39,12 @@ export default function TripPage() {
     joinOrUpdateParticipant,
     sendMessage,
     addExpense,
-  } = useTripRealtime(tripId);
+  } = useTripRealtime(tripId, currentUser);
 
-  // Enable live location tracking for the current user
   const { lastPosition, permission: locationPermission } = useLiveLocation(tripId, currentUser, {
     enableWatch: true,
   });
 
-  // Effect to publish the user's location whenever it changes.
-  // This also serves to register or update the user in the participant list.
   React.useEffect(() => {
     if (lastPosition && currentUser) {
       const participantUpdate = {
