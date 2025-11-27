@@ -137,13 +137,13 @@ export default function useTripRealtime(tripId: string) {
   const joinOrUpdateParticipant = async (p: Participant) => {
       if(!tripId) return;
       const trip = getTripLocal(tripId) || {id: tripId, participants: [], messages:[], expenses:[]};
-      const existingIdx = trip.participants.findIndex(par => par.id === p.id);
+      const existingIdx = trip.participants.findIndex((par: Participant) => par.id === p.id);
       if (existingIdx !== -1) trip.participants[existingIdx] = { ...trip.participants[existingIdx], ...p };
       else trip.participants.push(p);
       saveTripLocal(tripId, trip);
       setParticipants([...trip.participants]);
       
-      if(status === 'online') {
+      if(status === 'online' || useEmulator) {
           try {
             const { firestore } = getFirebaseInstances();
             await setDoc(doc(firestore, "trips", tripId, 'participants', p.id), p, { merge: true });
@@ -153,15 +153,22 @@ export default function useTripRealtime(tripId: string) {
       }
   };
 
-  const sendMessage = async (payload: Omit<Message, 'id' | 'createdAt'>) => {
-      if(!tripId) return;
+  const sendMessage = async (text: string, user: {id: string, name: string, avatarUrl: string}) => {
+      if(!tripId || !user) return;
+      const payload: Omit<Message, 'id' | 'createdAt'> = {
+          senderId: user.id,
+          userName: user.name,
+          avatarUrl: user.avatarUrl,
+          text: text,
+      };
+      
       const localMsg = { ...payload, id: `${Date.now()}`, createdAt: new Date().toISOString() };
       const trip = getTripLocal(tripId) || {id: tripId, participants: [], messages:[], expenses:[]};
       trip.messages.push(localMsg);
       saveTripLocal(tripId, trip);
       setMessages([...trip.messages]);
 
-      if(status === 'online') {
+      if(status === 'online' || useEmulator) {
           try {
             const { firestore } = getFirebaseInstances();
             await addDoc(collection(firestore, "trips", tripId, 'messages'), {
@@ -181,7 +188,7 @@ export default function useTripRealtime(tripId: string) {
       saveTripLocal(tripId, trip);
       setExpenses([...trip.expenses]);
 
-      if(status === 'online') {
+      if(status === 'online' || useEmulator) {
           try {
             const { firestore } = getFirebaseInstances();
             await addDoc(collection(firestore, "trips", tripId, 'expenses'), payload);

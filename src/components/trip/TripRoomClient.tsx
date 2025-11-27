@@ -3,159 +3,150 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import dynamic from 'next/dynamic';
 
-const TomTomMapController = dynamic(
-  () => import('@/components/trip/TomTomMapController'),
-  { ssr: false }
-);
-
 import RideButton from './RideButton';
 import useReverseGeocode from '@/hooks/useReverseGeocode';
+import { Card, CardContent } from '@/components/ui/card';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { ParticipantsList, type Participant } from './ParticipantsList';
+import { ChatBox, type Message } from './ChatBox';
+import { ExpenseCalculator, type Expense } from './ExpenseCalculator';
+import { TripCodeBadge } from './TripCodeBadge';
+import { useToast } from '../ui/use-toast';
+import { Wifi, WifiOff } from 'lucide-react';
 
-type Participant = {
-  id: string;
-  name?: string;
-  lat: number;
-  lng: number;
-};
+const TomTomMapController = dynamic(() => import('@/components/trip/TomTomMapController'), {
+  ssr: false,
+});
 
-type Props = {
-  participantsFromProps?: Participant[];
-  fetchFromFirestore?: boolean;
-  tripId?: string;
-  className?: string;
+type TripRoomClientProps = {
+  tripId: string;
+  currentUser: { id: string; name: string; avatarUrl: string };
+  participants: Participant[];
+  messages: Message[];
+  expenses: Expense[];
+  onSendMessage: (text: string) => void;
+  onAddExpense: (expense: Omit<Expense, 'id'>) => void;
+  connectionStatus: 'connecting' | 'online' | 'offline' | 'error';
+  locationPermission: 'granted' | 'denied' | 'prompt';
 };
 
 export default function TripRoomClient({
-  participantsFromProps,
-  fetchFromFirestore = false,
   tripId,
-  className,
-}: Props) {
+  currentUser,
+  participants,
+  messages,
+  expenses,
+  onSendMessage,
+  onAddExpense,
+  connectionStatus,
+}: TripRoomClientProps) {
   const [participantETAs, setParticipantETAs] = useState<Record<string, { etaSeconds: number; distanceMeters: number }>>({});
-  const [participantsArray, setParticipantsArray] = useState<Participant[]>(participantsFromProps || []);
   const [followId, setFollowId] = useState<string | null>(null);
-  const [loadingParticipants, setLoadingParticipants] = useState<boolean>(false);
+  const { toast } = useToast();
 
-  useEffect(() => {
-    if (!fetchFromFirestore) return;
-    if (!tripId) {
-      console.warn('TripRoomClient: fetchFromFirestore=true but tripId is not provided.');
-      return;
-    }
-    setLoadingParticipants(true);
-    let unsub: (() => void) | null = null;
-    try {
-      // TODO: wire to your firestore trip doc
-      // const tripDocRef = doc(firestore, 'trips', tripId);
-      // unsub = onSnapshot(tripDocRef, (snap) => {
-      //   const data = snap.data() || {};
-      //   const list = data.participants || [];
-      //   setParticipantsArray(list);
-      //   setLoadingParticipants(false);
-      // });
-    } catch (e) {
-      console.error('TripRoomClient: error subscribing to Firestore trip doc', e);
-      setLoadingParticipants(false);
-    }
-    return () => {
-      if (unsub) unsub();
-    };
-  }, [fetchFromFirestore, tripId]);
-
-  const participantsById: Record<string, Participant> = useMemo(() => {
-    const obj: Record<string, Participant> = {};
-    (participantsArray || []).forEach((p) => {
-      if (!p || !p.id) return;
-      obj[p.id] = p;
-    });
-    return obj;
-  }, [participantsArray]);
+  const participantsById = useMemo(() => {
+    return participants.reduce((acc, p) => {
+      if (p.id && p.coords) {
+        acc[p.id] = { ...p, lat: p.coords.lat, lng: p.coords.lng };
+      }
+      return acc;
+    }, {} as Record<string, Participant & { lat: number; lng: number }>);
+  }, [participants]);
 
   const handleParticipantETA = useCallback((id: string, data: { etaSeconds: number; distanceMeters: number }) => {
     setParticipantETAs((prev) => ({ ...prev, [id]: data }));
   }, []);
 
-  useEffect(() => {
-    // setFollowId(currentUserParticipantId || null);
-  }, []);
+  const currentUserParticipant = useMemo(() => {
+    return participants.find(p => p.id === currentUser.id);
+  }, [participants, currentUser.id]);
 
-  const formatETA = (s?: number | null) => {
-    if (s === undefined || s === null) return '--';
-    const mins = Math.round(s / 60);
-    if (mins < 60) return `${mins} min`;
-    const hours = Math.floor(mins / 60);
-    const rem = mins % 60;
-    return `${hours}h ${rem}m`;
+  const destCoords = { lat: 13.3702, lng: 77.6835 }; // Mock Nandi Hills destination
+
+  const { name: pickupName, shortName: pickupShort } = useReverseGeocode(currentUserParticipant?.coords?.lat, currentUserParticipant?.coords?.lng);
+  const { name: destName, shortName: destShort } = useReverseGeocode(destCoords.lat, destCoords.lng);
+
+  const pickup = currentUserParticipant?.coords ? { lat: currentUserParticipant.coords.lat, lng: currentUserParticipant.coords.lng, name: pickupName || pickupShort || undefined } : undefined;
+  const drop = { lat: destCoords.lat, lng: destCoords.lng, name: destName || destShort || undefined };
+
+  const handleCopyCode = () => {
+    navigator.clipboard.writeText(tripId);
+    toast({ title: 'Copied!', description: 'Trip code copied to clipboard.' });
   };
-
-  // Example pickup/destination for demo — replace with your real state
-  const pickupLat = participantsArray[0]?.lat ?? 12.9716;
-  const pickupLng = participantsArray[0]?.lng ?? 77.5946;
-  const destLat = participantsArray[1]?.lat ?? 12.9750;
-  const destLng = participantsArray[1]?.lng ?? 77.5990;
-
-  const { name: pickupName, shortName: pickupShort } = useReverseGeocode(pickupLat, pickupLng);
-  const { name: destName, shortName: destShort } = useReverseGeocode(destLat, destLng);
-
-  const pickup = { lat: pickupLat, lng: pickupLng, name: pickupName || pickupShort || undefined };
-  const drop = { lat: destLat, lng: destLng, name: destName || destShort || undefined };
+  
+  const formattedMessages = useMemo(() => {
+      return messages.map(msg => ({
+          id: msg.id,
+          userName: msg.senderId === currentUser.id ? 'You' : msg.userName,
+          text: msg.text,
+          timestamp: msg.createdAt ? new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '',
+          avatarUrl: msg.avatarUrl,
+      })).sort((a,b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+  }, [messages, currentUser.id]);
 
   return (
-    <div className={className || 'w-full h-full flex'} style={{ minHeight: 360 }}>
-      <div style={{ flex: 1, minHeight: 360 }}>
+    <div className="w-full h-full flex flex-col md:flex-row" style={{ minHeight: 360 }}>
+      <div className="flex-1 min-h-[360px] md:min-h-full relative">
         <TomTomMapController
           participants={participantsById}
           computeRoutes={true}
           onParticipantETA={handleParticipantETA}
           followId={followId}
-          initialCenter={{ lat: 12.9716, lng: 77.5946 }}
+          initialCenter={destCoords}
           initialZoom={12}
         />
+        <div className="absolute top-4 left-4 z-10 flex gap-2 items-center">
+            <TripCodeBadge code={tripId} onCopy={handleCopyCode} />
+            <div className='p-2 bg-background rounded-full border shadow-md'>
+            {connectionStatus === 'online' ? <Wifi className="h-5 w-5 text-green-600" /> : <WifiOff className="h-5 w-5 text-red-600"/>}
+            </div>
+        </div>
       </div>
 
-      <aside style={{ width: 320, borderLeft: '1px solid #e6e6e6', padding: 12, background: '#fff', overflowY: 'auto' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-          <h4 style={{ margin: 0, fontSize: 16 }}>Participants</h4>
-          <div style={{ fontSize: 12, color: '#666' }}>{loadingParticipants ? 'Loading...' : Object.keys(participantsById).length}</div>
-        </div>
+      <aside className="w-full md:w-96 border-l bg-background flex flex-col h-[60vh] md:h-full">
+        <Tabs defaultValue="participants" className="flex-1 flex flex-col">
+          <TabsList className="w-full justify-around rounded-none">
+            <TabsTrigger value="participants">Participants</TabsTrigger>
+            <TabsTrigger value="chat">Chat</TabsTrigger>
+            <TabsTrigger value="expenses">Expenses</TabsTrigger>
+          </TabsList>
+          
+          <TabsContent value="participants" className="flex-1 overflow-y-auto">
+             <Card className="border-none shadow-none rounded-none">
+                <ParticipantsList participants={participants.map(p => ({
+                    ...p,
+                    eta: participantETAs[p.id] ? `${Math.round(participantETAs[p.id].etaSeconds / 60)} min` : '...',
+                    status: 'On the way', // Replace with real status
+                }))} />
+             </Card>
+          </TabsContent>
 
-        <div>
-          {Object.values(participantsById).length === 0 ? (
-            <div style={{ padding: 8, color: '#777' }}>No participants</div>
-          ) : (
-            Object.values(participantsById).map((p) => {
-              const eta = participantETAs[p.id];
-              return (
-                <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: 8, borderRadius: 8, marginBottom: 8, border: '1px solid #f0f0f0' }}>
-                  <div style={{ width: 42, height: 42, borderRadius: 8, background: '#f8fafc', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, color: '#1E90FF', fontSize: 13 }}>
-                    {(p.name || '??').slice(0, 2).toUpperCase()}
-                  </div>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontWeight: 600 }}>{p.name || 'Unnamed'}</div>
-                    <div style={{ fontSize: 12, color: '#666' }}>
-                      {eta ? `${Math.round(eta.distanceMeters)} m • ${formatETA(eta.etaSeconds)}` : 'ETA —'}
-                    </div>
-                  </div>
-
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                    <button onClick={() => { setFollowId(p.id); setTimeout(() => setFollowId(null), 2000); }} style={{ fontSize: 12, padding: '6px 8px', borderRadius: 6, border: '1px solid #e6e6e6', background: '#fff', cursor: 'pointer' }}>
-                      Follow
-                    </button>
-                  </div>
-                </div>
-              );
-            })
-          )}
-        </div>
-
-        <div style={{ marginTop: 12 }}>
-          <div style={{ marginBottom: 8, fontWeight: 600 }}>Book a ride</div>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <RideButton provider="uber" pickup={pickup} drop={drop}>Uber</RideButton>
-            <RideButton provider="ola" pickup={pickup} drop={drop}>Ola</RideButton>
-            <RideButton provider="rapido" pickup={pickup} drop={drop}>Rapido</RideButton>
-            <RideButton provider="transit" pickup={pickup} drop={drop}>Transit</RideButton>
+          <TabsContent value="chat" className="flex-1 flex flex-col h-full m-0">
+             <ChatBox messages={formattedMessages} onSendMessage={(text) => onSendMessage(text)} />
+          </TabsContent>
+          
+          <TabsContent value="expenses" className="flex-1 overflow-y-auto">
+            <Card className="border-none shadow-none rounded-none">
+                <CardContent className="p-4">
+                    <ExpenseCalculator 
+                        participants={participants} 
+                        expenses={expenses}
+                        onAddExpense={onAddExpense}
+                    />
+                </CardContent>
+            </Card>
+          </TabsContent>
+        </Tabs>
+        
+        <div className="p-4 border-t">
+          <h4 className="font-semibold mb-3">Book a Ride</h4>
+          <div className="grid grid-cols-2 gap-2">
+            <RideButton provider="uber" pickup={pickup} drop={drop} className="w-full"/>
+            <RideButton provider="ola" pickup={pickup} drop={drop} className="w-full"/>
+            <RideButton provider="rapido" pickup={pickup} drop={drop} className="w-full"/>
+            <RideButton provider="transit" pickup={pickup} drop={drop} className="w-full"/>
           </div>
+          {locationPermission === 'denied' && <p className="text-xs text-destructive mt-2">Enable location permissions to book a ride from your current location.</p>}
         </div>
       </aside>
     </div>
