@@ -87,7 +87,7 @@ export default function TripRoomClient({ tripId, currentUser, initialTrip = null
           name: p.name,
           etaSeconds: e.etaSeconds,
           distanceMeters: e.distanceMeters,
-          coords: p.coords ? {lat: p.coords.lat, lon: p.coords.lon } : undefined,
+          coords: p.coords ? {lat: p.coords.lat, lng: p.coords.lon } : undefined,
         };
       })
       .sort((a, b) => {
