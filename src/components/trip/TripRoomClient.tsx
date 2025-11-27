@@ -4,8 +4,8 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import dynamic from 'next/dynamic';
 
-import RideButton from './RideButton';
 import useReverseGeocode from '@/hooks/useReverseGeocode';
+import RideButton from './RideButton';
 import { Card, CardContent } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ParticipantsList, type Participant } from './ParticipantsList';
@@ -15,7 +15,8 @@ import { TripCodeBadge } from './TripCodeBadge';
 import { useToast } from '../ui/use-toast';
 import { Wifi, WifiOff } from 'lucide-react';
 
-const TomTomMapController = dynamic(() => import('@/components/trip/TomTomMapController'), {
+// dynamic import for SSR-safety: TomTomMapController uses window and TomTom SDK
+const TomTomMapController = dynamic(() => import('./TomTomMapController'), {
   ssr: false,
 });
 
@@ -48,14 +49,15 @@ export default function TripRoomClient({
 
   const participantsById = useMemo(() => {
     return participants.reduce((acc, p) => {
-      if (p.id && p.coords) {
-        acc[p.id] = { ...p, lat: p.coords.lat, lng: p.coords.lng };
-      } else if (p.id && p.lat && p.lng) {
-        acc[p.id] = { ...p, coords: { lat: p.lat, lng: p.lng }, lat: p.lat, lng: p.lng };
+      if (p.id && (p.coords || (p.lat && p.lng))) {
+        const lat = p.coords?.lat ?? p.lat!;
+        const lng = p.coords?.lng ?? p.lng!;
+        acc[p.id] = { ...p, lat, lng };
       }
       return acc;
     }, {} as Record<string, Participant & { lat: number; lng: number }>);
   }, [participants]);
+
 
   const handleParticipantETA = useCallback((id: string, data: { etaSeconds: number | null, distanceMeters: number | null }) => {
     setParticipantETAs((prev) => ({ ...prev, [id]: data }));
@@ -65,6 +67,7 @@ export default function TripRoomClient({
     return participants.find(p => p.id === currentUser.id);
   }, [participants, currentUser.id]);
 
+  // For this demo, destination is hardcoded. A real app would get this from the trip data.
   const destCoords = { lat: 13.3702, lng: 77.6835 };
 
   const { name: pickupName, shortName: pickupShort } = useReverseGeocode(currentUserParticipant?.coords?.lat, currentUserParticipant?.coords?.lng);
@@ -72,6 +75,9 @@ export default function TripRoomClient({
 
   const pickup = currentUserParticipant?.coords ? { lat: currentUserParticipant.coords.lat, lng: currentUserParticipant.coords.lng, name: pickupName || pickupShort || undefined } : undefined;
   const drop = { lat: destCoords.lat, lng: destCoords.lng, name: destName || destShort || undefined };
+  
+  const origin = useMemo(() => (pickup ? { lat: pickup.lat, lng: pickup.lng } : null), [pickup]);
+  const destination = useMemo(() => ({ lat: drop.lat, lng: drop.lng }), [drop.lat, drop.lng]);
 
   const handleCopyCode = () => {
     navigator.clipboard.writeText(tripId);
@@ -94,8 +100,8 @@ export default function TripRoomClient({
       <div className="flex-1 min-h-[360px] md:min-h-full relative">
         <TomTomMapController
           participants={participantsById}
-          origin={pickup}
-          destination={drop}
+          origin={origin}
+          destination={destination}
           computeRoutes={true}
           onParticipantETA={handleParticipantETA}
           followId={followId}
@@ -123,7 +129,7 @@ export default function TripRoomClient({
                 <ParticipantsList participants={participants.map(p => ({
                     ...p,
                     eta: participantETAs[p.id] ? `${Math.round((participantETAs[p.id]?.etaSeconds ?? 0) / 60)} min` : '...',
-                    status: 'On the way',
+                    status: 'On the way', // Note: status logic can be enhanced
                 }))} />
              </Card>
           </TabsContent>
