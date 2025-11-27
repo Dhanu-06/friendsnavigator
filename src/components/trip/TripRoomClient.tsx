@@ -42,7 +42,7 @@ export default function TripRoomClient({
   connectionStatus,
   locationPermission,
 }: TripRoomClientProps) {
-  const [participantETAs, setParticipantETAs] = useState<Record<string, { etaSeconds: number; distanceMeters: number }>>({});
+  const [participantETAs, setParticipantETAs] = useState<Record<string, { etaSeconds: number | null; distanceMeters: number | null }>>({});
   const [followId, setFollowId] = useState<string | null>(null);
   const { toast } = useToast();
 
@@ -58,7 +58,7 @@ export default function TripRoomClient({
   }, [participants]);
 
   const handleParticipantETA = useCallback((id: string, data: { etaSeconds: number | null, distanceMeters: number | null }) => {
-    setParticipantETAs((prev) => ({ ...prev, [id]: data as { etaSeconds: number; distanceMeters: number; } }));
+    setParticipantETAs((prev) => ({ ...prev, [id]: data }));
   }, []);
 
   const currentUserParticipant = useMemo(() => {
@@ -79,7 +79,7 @@ export default function TripRoomClient({
   };
   
   const formattedMessages = useMemo(() => {
-      return messages.map(msg => ({
+      return (messages || []).map(msg => ({
           ...msg,
           id: msg.id,
           userName: msg.senderId === currentUser.id ? 'You' : msg.userName,
@@ -122,7 +122,7 @@ export default function TripRoomClient({
              <Card className="border-none shadow-none rounded-none">
                 <ParticipantsList participants={participants.map(p => ({
                     ...p,
-                    eta: participantETAs[p.id] ? `${Math.round(participantETAs[p.id].etaSeconds / 60)} min` : '...',
+                    eta: participantETAs[p.id] ? `${Math.round((participantETAs[p.id]?.etaSeconds ?? 0) / 60)} min` : '...',
                     status: 'On the way',
                 }))} />
              </Card>
