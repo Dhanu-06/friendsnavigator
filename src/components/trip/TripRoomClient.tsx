@@ -9,7 +9,7 @@ import { getTrip } from "@/lib/storeAdapter";
 
 const TomTomMapController = dynamic(() => import("@/components/trip/TomTomMapController"), { ssr: false });
 
-type LatLng = { lat: number; lng: number };
+type LatLng = { lat: number; lon: number };
 
 type Participant = {
   id: string;
@@ -36,6 +36,10 @@ export default function TripRoomClient({ tripId, currentUser, initialTrip = null
 
   // Local state for ETAs reported by server (matrix) or fallback
   const [etas, setEtas] = useState<Record<string, { etaSeconds: number | null; distanceMeters: number | null }>>({});
+  
+  const handleParticipantETA = (id: string, info: { etaSeconds: number | null, distanceMeters: number | null }) => {
+      setEtas(prev => ({...prev, [id]: info}));
+  };
 
   // Convert realtime participants into the shape Map expects
   const participants = useMemo(() => {
@@ -43,7 +47,7 @@ export default function TripRoomClient({ tripId, currentUser, initialTrip = null
       id: p.id,
       name: p.name || "Unknown",
       avatar: p.avatarUrl || null,
-      coords: p.coords ? { lat: p.coords.lat, lng: p.coords.lng } : undefined,
+      coords: p.coords ? { lat: p.coords.lat, lon: p.coords.lng } : undefined,
     })) as Participant[];
   }, [realtimeParticipants]);
 
@@ -57,7 +61,7 @@ export default function TripRoomClient({ tripId, currentUser, initialTrip = null
           name: p.name,
           etaSeconds: e.etaSeconds,
           distanceMeters: e.distanceMeters,
-          coords: p.coords,
+          coords: p.coords ? {lat: p.coords.lat, lng: p.coords.lon } : undefined,
         };
       })
       .sort((a, b) => {
@@ -81,82 +85,18 @@ export default function TripRoomClient({ tripId, currentUser, initialTrip = null
     }
   }, [tripId, initialTrip]);
 
-  // Matrix API batching: request ETAs for all participants -> destination
-  const matrixThrottleMs = 3000; // min interval between matrix calls
-  const lastMatrixAtRef = useRef<number>(0);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    async function fetchMatrixETAs() {
-      if (cancelled) return;
-      if (!participants || participants.length === 0) {
-        setEtas({});
-        return;
-      }
-      if (!tripMeta?.destination?.lat) {
-        return;
-      }
-      const now = Date.now();
-      if (now - lastMatrixAtRef.current < matrixThrottleMs) return;
-      lastMatrixAtRef.current = now;
-
-      const origins = participants
-        .filter((p) => p.coords && typeof p.coords.lat === "number")
-        .map((p) => ({ id: p.id, lat: p.coords!.lat, lng: p.coords!.lng }));
-
-      if (origins.length === 0) return;
-
-      try {
-        const res = await fetch("/api/matrix-eta", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            origins,
-            destination: { lat: tripMeta.destination.lat, lng: tripMeta.destination.lng },
-          }),
-        });
-        const json = await res.json();
-        if (json?.results && Array.isArray(json.results)) {
-          setEtas((prev) => {
-            const copy = { ...prev };
-            for (const r of json.results) {
-              copy[r.id] = { etaSeconds: r.etaSeconds ?? null, distanceMeters: r.distanceMeters ?? null };
-            }
-            return copy;
-          });
-        } else if (json?.raw && Array.isArray(json.raw?.results)) {
-          setEtas((prev) => {
-            const copy = { ...prev };
-            for (const r of json.raw.results) {
-              copy[r.id] = { etaSeconds: r.etaSeconds ?? null, distanceMeters: r.distanceMeters ?? null };
-            }
-            return copy;
-          });
-        } else {
-          console.warn("matrix-eta returned unexpected shape", json);
-        }
-      } catch (e) {
-        console.error("matrix-eta fetch failed", e);
-      }
-    }
-
-    fetchMatrixETAs();
-    const iv = setInterval(fetchMatrixETAs, 8000);
-    return () => {
-      cancelled = true;
-      clearInterval(iv);
-    };
-  }, [participants, tripMeta?.destination?.lat, tripMeta?.destination?.lng]);
-
   return (
     <div style={{ display: "grid", gridTemplateColumns: "1fr 360px", gap: 12, height: "100vh" }}>
       <div style={{ height: "100%" }}>
         <TomTomMapController
           origin={tripMeta?.origin}
-          destination={tripMeta?.destination}
+          destination={{
+              ...tripMeta?.destination,
+              coords: tripMeta?.destination ? { lon: tripMeta.destination.lng, lat: tripMeta.destination.lat } : undefined,
+          }}
           participants={participants}
-          computeRoutes={false}
+          computeRoutes={true}
+          onParticipantETA={handleParticipantETA}
         />
       </div>
 

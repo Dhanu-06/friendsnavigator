@@ -1,211 +1,407 @@
-'use client';
+// src/components/trip/TomTomMapController.tsx
+"use client";
 
-// components/trip/TomTomMapController.tsx
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef } from "react";
 
-type LatLng = { lat: number; lng: number };
-
-type Participant = { 
-  id: string; 
-  name: string; 
-  coords?: LatLng; 
-  avatarUrl?: string | null 
-};
+type LatLng = { lat: number; lon: number };
+type Participant = { id: string; name?: string; avatar?: string | null; coords?: LatLng };
 
 type Props = {
-  origin?: { label?: string; coords?: LatLng } | null;
-  destination?: { label?: string; coords?: LatLng } | null;
+  origin?: any;
+  destination?: any;
   participants?: Participant[];
-  fitBounds?: boolean;
-  computeRoutes?: boolean; // Kept for API compatibility, but logic is now external
-  onParticipantETA?: (id: string, info: { etaSeconds: number | null; distanceMeters: number | null }) => void; // Kept for API compatibility
-  onSearchResult?: (place: { label?: string; coords?: LatLng }) => void;
-  className?: string;
+  // If true, the controller will call /api/matrix-eta for ETAs and show them on popups
+  computeRoutes?: boolean;
+  // called when ETA for a participant is known: (id, {etaSeconds, distanceMeters})
+  onParticipantETA?: (id: string, info: { etaSeconds: number | null; distanceMeters: number | null }) => void;
   style?: React.CSSProperties;
 };
+
+/**
+ * TomTomMapController
+ *
+ * - Dynamically loads TomTom Web SDK at runtime (client-only).
+ * - Creates markers for participants and smoothly interpolates them.
+ * - Periodically queries /api/matrix-eta for travel times to destination (if computeRoutes=true).
+ *
+ * Notes:
+ * - Requires NEXT_TOMTOM_KEY server env for server routes;
+ *   for client map tiles the controller reads NEXT_PUBLIC_TOMTOM_KEY if set.
+ * - Avoids SSR import to prevent `self is not defined` errors.
+ */
+
+function ensureTomTomScript(): Promise<void> {
+  // If already loaded
+  // @ts-ignore
+  if (typeof window !== "undefined" && (window as any).tt && (window as any).tt.map) {
+    return Promise.resolve();
+  }
+
+  const existing = document.querySelector('script[data-tt-sdk="true"]') as HTMLScriptElement | null;
+  if (existing) {
+    return new Promise((res) => {
+      existing.addEventListener("load", () => res());
+      existing.addEventListener("error", () => res());
+    });
+  }
+
+  // Insert CSS (safe to insert duplicate; browser ignores duplicates)
+  const cssHref =
+    "https://api.tomtom.com/maps-sdk-for-web/cdn/6.x/6.15.0/maps/maps.css"; // CDN CSS (works with many TomTom SDK versions)
+  if (!document.querySelector(`link[href="${cssHref}"]`)) {
+    const l = document.createElement("link");
+    l.rel = "stylesheet";
+    l.href = cssHref;
+    document.head.appendChild(l);
+  }
+
+  // Insert script tag
+  return new Promise((resolve, reject) => {
+    const s = document.createElement("script");
+    s.setAttribute("data-tt-sdk", "true");
+    // A common public CDN path; if your environment needs a different version, you can change this.
+    s.src = "https://api.tomtom.com/maps-sdk-for-web/cdn/6.x/6.15.0/maps/maps-web.min.js";
+    s.async = true;
+    s.defer = true;
+    s.onload = () => {
+      // small delay to ensure tt is registered
+      setTimeout(() => resolve(), 50);
+    };
+    s.onerror = (e) => reject(e);
+    document.head.appendChild(s);
+  });
+}
+
+function latLonToArray(c?: LatLng) {
+  if (!c) return undefined;
+  // TomTom expects [lon, lat] in some APIs; for map marker we use {lat, lng}
+  return { lat: c.lat, lng: c.lon };
+}
 
 export default function TomTomMapController({
   origin,
   destination,
   participants = [],
-  fitBounds = true,
   computeRoutes = false,
   onParticipantETA,
-  onSearchResult,
-  className,
   style,
 }: Props) {
-  const mapRef = useRef<HTMLDivElement | null>(null);
-  const ttMapRef = useRef<any>(null);
-  const sdkRef = useRef<any>(null);
-  const markersRef = useRef<Record<string, { marker: any; anim?: { frameId?: number; start?: number; duration?: number; from?: [number, number]; to?: [number, number] } }>>({});
-  const routeLayerIdPrefix = "route-layer-";
-  const [mapReady, setMapReady] = useState(false);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const mapRef = useRef<any>(null);
+  const markersRef = useRef<Map<string, any>>(new Map());
+  const popupRef = useRef<Map<string, any>>(new Map());
+  const animationRefs = useRef<Map<string, number>>(new Map());
+  const matrixTimerRef = useRef<number | null>(null);
+
+  // Smoothly move marker from start to end in ms duration
+  function animateMarker(marker: any, from: { lat: number; lng: number }, to: { lat: number; lng: number }, duration = 900) {
+    // cancel previous animation
+    const prev = animationRefs.current.get(marker._id || marker.getElement()?.dataset?.id ?? "");
+    if (prev) cancelAnimationFrame(prev);
+
+    const start = performance.now();
+    function step(now: number) {
+      const t = Math.min(1, (now - start) / duration);
+      // simple linear interpolation
+      const lat = from.lat + (to.lat - from.lat) * t;
+      const lng = from.lng + (to.lng - from.lng) * t;
+      try {
+        marker.setLngLat([lng, lat]);
+      } catch (e) {
+        // ignore
+      }
+      if (t < 1) {
+        const raf = requestAnimationFrame(step);
+        animationRefs.current.set(marker._id || marker.getElement()?.dataset?.id ?? "", raf);
+      } else {
+        animationRefs.current.delete(marker._id || marker.getElement()?.dataset?.id ?? "");
+      }
+    }
+    requestAnimationFrame(step);
+  }
+
+  // Upsert marker for participant
+  function upsertParticipantMarker(tt: any, p: Participant) {
+    if (!p?.coords) return;
+    const id = p.id;
+    const existing = markersRef.current.get(id);
+    const latlng = { lat: p.coords.lat, lng: p.coords.lon };
+    if (existing) {
+      // animate to new pos
+      try {
+        const current = existing.getLngLat ? existing.getLngLat() : { lat: latlng.lat, lng: latlng.lng };
+        animateMarker(existing, { lat: current.lat, lng: current.lng }, latlng, 1200);
+      } catch {
+        existing.setLngLat([latlng.lng, latlng.lat]);
+      }
+      // update popup content (name)
+      const pop = popupRef.current.get(id);
+      if (pop) {
+        pop.setHTML(`<div style="font-weight:700">${p.name ?? "Friend"}</div><div style="font-size:12px">Updating…</div>`);
+      }
+    } else {
+      // create a DOM element for marker (circle with initials)
+      const el = document.createElement("div");
+      el.className = "tt-marker";
+      el.style.width = "40px";
+      el.style.height = "40px";
+      el.style.borderRadius = "20px";
+      el.style.display = "flex";
+      el.style.alignItems = "center";
+      el.style.justifyContent = "center";
+      el.style.color = "#fff";
+      el.style.fontWeight = "700";
+      el.style.boxShadow = "0 2px 6px rgba(0,0,0,0.25)";
+      el.style.background = "#3b82f6";
+      el.style.border = "2px solid white";
+      el.dataset.id = id;
+
+      // initials
+      const initials = (p.name || p.id || "U").split(" ").map((s) => s[0]).slice(0, 2).join("").toUpperCase();
+      el.textContent = initials;
+
+      // create marker
+      const marker = new tt.Marker({ element: el }).setLngLat([latlng.lng, latlng.lat]).addTo(mapRef.current);
+      // store id on marker for animations
+      (marker as any)._id = id;
+      markersRef.current.set(id, marker);
+
+      // popup
+      const popup = new tt.Popup({ offset: 25 }).setHTML(`<div style="font-weight:700">${p.name ?? "Friend"}</div><div style="font-size:12px">ETA: —</div>`);
+      popupRef.current.set(id, popup);
+      marker.setPopup(popup);
+    }
+  }
+
+  // Remove markers not in participants
+  function cleanupMarkers(pIds: string[]) {
+    for (const [id, marker] of markersRef.current.entries()) {
+      if (!pIds.includes(id)) {
+        try {
+          marker.remove();
+        } catch {}
+        markersRef.current.delete(id);
+        const p = popupRef.current.get(id);
+        if (p) {
+          try {
+            p.remove();
+          } catch {}
+        }
+        popupRef.current.delete(id);
+      }
+    }
+  }
+
+  // Call matrix endpoint server-side via our API to get ETAs to destination
+  async function fetchETAs(origins: { id: string; lat: number; lon: number }[], dest: { lat: number; lon: number }) {
+    try {
+      const res = await fetch("/api/matrix-eta", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ origins, destination: dest }),
+      });
+      if (!res.ok) {
+        const txt = await res.text();
+        console.warn("matrix-eta failed", res.status, txt);
+        return null;
+      }
+      const j = await res.json();
+      return j;
+    } catch (e) {
+      console.warn("matrix-eta request error", e);
+      return null;
+    }
+  }
+
+  // Update popup text for ETA
+  function updateETAPopups(matrixJson: any) {
+    if (!matrixJson) return;
+    const results = matrixJson.results || matrixJson.raw?.results || matrixJson.matrix || null;
+    // Try to read results array
+    if (Array.isArray(matrixJson.results)) {
+      for (const r of matrixJson.results) {
+        const id = r.id;
+        const etaSec = r.etaSeconds ?? null;
+        const dist = r.distanceMeters ?? null;
+        const pop = popupRef.current.get(id);
+        if (pop) {
+          const etaText = etaSec ? `${Math.round(etaSec / 60)} min` : "—";
+          pop.setHTML(`<div style="font-weight:700">${id}</div><div style="font-size:12px">ETA: ${etaText}</div><div style="font-size:11px;color:#666">${dist ? `${(dist/1000).toFixed(1)} km` : ""}</div>`);
+        }
+        if (onParticipantETA) onParticipantETA(id, { etaSeconds: etaSec, distanceMeters: dist });
+      }
+    } else if (matrixJson && matrixJson.results === undefined && matrixJson.results?.length === 0 && matrixJson.raw) {
+      // try raw
+    } else if (matrixJson && matrixJson.raw && Array.isArray(matrixJson.raw.results)) {
+      for (const r of matrixJson.raw.results) {
+        const id = r.id;
+        const etaSec = r.etaSeconds ?? null;
+        const dist = r.distanceMeters ?? null;
+        const pop = popupRef.current.get(id);
+        if (pop) {
+          const etaText = etaSec ? `${Math.round(etaSec / 60)} min` : "—";
+          pop.setHTML(`<div style="font-weight:700">${id}</div><div style="font-size:12px">ETA: ${etaText}</div><div style="font-size:11px;color:#666">${dist ? `${(dist/1000).toFixed(1)} km` : ""}</div>`);
+        }
+        if (onParticipantETA) onParticipantETA(id, { etaSeconds: etaSec, distanceMeters: dist });
+      }
+    } else if (matrixJson && Array.isArray(matrixJson)) {
+      for (const r of matrixJson) {
+        const id = r.id;
+        const etaSec = r.etaSeconds ?? null;
+        const dist = r.distanceMeters ?? null;
+        const pop = popupRef.current.get(id);
+        if (pop) {
+          const etaText = etaSec ? `${Math.round(etaSec / 60)} min` : "—";
+          pop.setHTML(`<div style="font-weight:700">${id}</div><div style="font-size:12px">ETA: ${etaText}</div><div style="font-size:11px;color:#666">${dist ? `${(dist/1000).toFixed(1)} km` : ""}</div>`);
+        }
+        if (onParticipantETA) onParticipantETA(id, { etaSeconds: etaSec, distanceMeters: dist });
+      }
+    }
+  }
 
   useEffect(() => {
-    if (!mapRef.current || typeof window === "undefined") return;
-    const TOMTOM_KEY = process.env.NEXT_PUBLIC_TOMTOM_KEY;
-    if (!TOMTOM_KEY) {
-      console.error("TomTom API key not set.");
-      return;
-    }
-    if (ttMapRef.current) {
-      setMapReady(true);
-      return;
-    }
+    let cancelled = false;
 
-    let tt: any, SearchBox: any;
-
-    const initMap = async () => {
+    async function setup() {
+      if (!containerRef.current) return;
       try {
-        tt = await import("@tomtom-international/web-sdk-maps");
-        SearchBox = (await import("@tomtom-international/web-sdk-plugin-searchbox")).default;
-        sdkRef.current = tt;
+        await ensureTomTomScript();
       } catch (e) {
         console.error("Failed to load TomTom SDK", e);
         return;
       }
+      // @ts-ignore
+      const tt = (window as any).tt;
+      if (!tt) {
+        console.error("TomTom SDK not available on window.tt");
+        return;
+      }
 
-      const map = tt.default.map({
-        key: TOMTOM_KEY,
-        container: mapRef.current,
-        center: destination?.coords ? [destination.coords.lng, destination.coords.lat] : [77.5946, 12.9716],
+      // pick key from PUBLIC env when client needs tiles
+      const clientKey = (process.env.NEXT_PUBLIC_TOMTOM_KEY || process.env.NEXT_TOMTOM_KEY || process.env.NEXT_PUBLIC_TOMTOM_KEY) as string | undefined;
+      if (!clientKey) {
+        console.warn("No TomTom client key found in NEXT_PUBLIC_TOMTOM_KEY or NEXT_TOMTOM_KEY. Map tiles might not load correctly.");
+      }
+
+      const map = tt.map({
+        key: clientKey || "",
+        container: containerRef.current,
+        center: origin?.coords ? [origin.coords.lon, origin.coords.lat] : participants[0]?.coords ? [participants[0].coords.lon, participants[0].coords.lat] : [0, 0],
         zoom: 12,
-        language: "en-US",
       });
 
-      ttMapRef.current = map;
-      map.addControl(new tt.default.FullscreenControl());
-      map.addControl(new tt.default.NavigationControl());
+      mapRef.current = map;
 
-      try {
-        const searchBox = new SearchBox({ apiKey: TOMTOM_KEY, language: "en-US", position: "top-left" });
-        map.addControl(searchBox);
-        searchBox.on("tomtom.searchbox.result", (ev: any) => {
-          if (!onSearchResult || !ev?.result) return;
-          const { position, address, poi } = ev.result;
-          const coords = position ? { lat: position.lat, lng: position.lng } : undefined;
-          const label = address?.freeformAddress || poi?.name;
-          onSearchResult({ label, coords });
-        });
-      } catch (e) {
-        console.warn("SearchBox plugin not initialized", e);
+      // Add fullscreen and navigation controls
+      map.addControl(new tt.NavigationControl());
+      map.addControl(new tt.FullscreenControl());
+
+      // Initial markers
+      for (const p of participants) {
+        upsertParticipantMarker(tt, p);
       }
 
-      map.on("load", () => setMapReady(true));
-    };
+      cleanupMarkers(participants.map((p) => p.id));
 
-    initMap();
+      // If destination is provided, add a destination marker
+      let destMarker: any = null;
+      if (destination?.coords) {
+        try {
+          destMarker = new tt.Marker({ color: "#ef4444" }).setLngLat([destination.coords.lon, destination.coords.lat]).addTo(map);
+        } catch (e) {}
+      }
+
+      // Ensure map fitting to bounds
+      try {
+        const coords = participants
+          .filter((p) => p.coords)
+          .map((p) => [p.coords!.lon, p.coords!.lat]) as [number, number][];
+        if (destination?.coords) coords.push([destination.coords.lon, destination.coords.lat]);
+        if (coords.length > 0) {
+          const bounds = coords.reduce((b: any, c) => {
+            return b.extend(c);
+          }, new tt.LngLatBounds(coords[0], coords[0]));
+          map.fitBounds(bounds, { padding: 80, maxZoom: 15 });
+        }
+      } catch {}
+
+      // Matrix polling for ETAs
+      async function matrixLoop() {
+        if (cancelled) return;
+        if (!computeRoutes) return;
+        // build origins from current markers
+        const origins = [];
+        for (const p of participants) {
+          if (p.coords && typeof p.coords.lat === "number") origins.push({ id: p.id, lat: p.coords.lat, lon: p.coords.lon });
+        }
+        const dest = destination?.coords ? { lat: destination.coords.lat, lon: destination.coords.lon } : null;
+        if (origins.length === 0 || !dest) {
+          matrixTimerRef.current = window.setTimeout(matrixLoop, 3000);
+          return;
+        }
+        const j = await fetchETAs(origins, dest);
+        if (j) updateETAPopups(j);
+        matrixTimerRef.current = window.setTimeout(matrixLoop, 5000);
+      }
+
+      // Start matrix loop
+      if (computeRoutes) {
+        matrixLoop().catch((e) => console.warn("matrixLoop err", e));
+      }
+
+      // Cleanup on unmount
+      return () => {
+        cancelled = true;
+        try {
+          if (matrixTimerRef.current) {
+            clearTimeout(matrixTimerRef.current);
+            matrixTimerRef.current = null;
+          }
+          // remove markers
+          for (const m of markersRef.current.values()) {
+            try {
+              m.remove();
+            } catch {}
+          }
+          markersRef.current.clear();
+          // remove map
+          if (mapRef.current) {
+            try {
+              mapRef.current.remove();
+            } catch {}
+            mapRef.current = null;
+          }
+        } catch (e) {}
+      };
+    }
+
+    const cleanupPromise = setup();
 
     return () => {
-      ttMapRef.current?.remove();
-      ttMapRef.current = null;
-      Object.values(markersRef.current).forEach(entry => entry.anim?.frameId && cancelAnimationFrame(entry.anim.frameId));
-      markersRef.current = {};
-      setMapReady(false);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  function lerp(a: number, b: number, t: number) { return a + (b - a) * t; }
-
-  function animateMarkerTo(key: string, marker: any, toLngLat: [number, number], durationMs = 800) {
-    if (!marker) return;
-    const entry = markersRef.current[key] || (markersRef.current[key] = { marker });
-    if (entry.anim?.frameId) cancelAnimationFrame(entry.anim.frameId);
-
-    let from: [number, number];
-    try {
-      const cur = marker.getLngLat();
-      from = [cur.lng, cur.lat];
-    } catch (e) {
-      from = toLngLat;
-    }
-
-    const start = performance.now();
-    const animObj = { frameId: 0, start, duration: durationMs, from, to: toLngLat };
-    entry.anim = animObj;
-
-    const step = (now: number) => {
-      const elapsed = now - animObj.start;
-      const t = Math.min(1, elapsed / animObj.duration);
-      const lng = lerp(animObj.from[0], animObj.to[0], t);
-      const lat = lerp(animObj.from[1], animObj.to[1], t);
-      try { marker.setLngLat([lng, lat]); } catch (e) { }
-      if (t < 1) animObj.frameId = requestAnimationFrame(step);
-      else {
-        animObj.frameId = undefined;
-        entry.anim = undefined;
+      // cancel any background timers/animations
+      for (const a of animationRefs.current.values()) cancelAnimationFrame(a);
+      animationRefs.current.clear();
+      // clear timers
+      if (matrixTimerRef.current) {
+        clearTimeout(matrixTimerRef.current);
+        matrixTimerRef.current = null;
       }
     };
-    animObj.frameId = requestAnimationFrame(step);
-  }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // initial mount only
 
-  function upsertMarker(key: string, coords: LatLng, popupHtml?: string, options: { color?: string; avatarUrl?: string } = {}) {
-    if (!ttMapRef.current || !sdkRef.current) return;
-    const { color = "#2b7cff", avatarUrl } = options;
-    const existing = markersRef.current[key];
-    if (existing?.marker) {
-      animateMarkerTo(key, existing.marker, [coords.lng, coords.lat]);
-      return existing.marker;
-    }
-
-    const el = document.createElement("div");
-    el.style.cssText = `width:34px;height:34px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:${color};color:white;font-size:14px;box-shadow:0 1px 4px rgba(0,0,0,0.4);border:2px solid white;overflow:hidden;`;
-    if (avatarUrl) el.innerHTML = `<img src="${avatarUrl}" alt="${key}" style="width:100%;height:100%;object-fit:cover;" />`;
-    else el.textContent = key?.[0]?.toUpperCase() || "?";
-
-    const marker = new sdkRef.current.default.Marker({ element: el }).setLngLat([coords.lng, coords.lat]).addTo(ttMapRef.current);
-    if (popupHtml) marker.setPopup(new sdkRef.current.default.Popup({ offset: 20 }).setHTML(popupHtml));
-    markersRef.current[key] = { marker };
-    return marker;
-  }
-
-  function removeMarker(key: string) {
-    const entry = markersRef.current[key];
-    if (entry) {
-      if (entry.anim?.frameId) cancelAnimationFrame(entry.anim.frameId);
-      try { entry.marker.remove(); } catch (e) { }
-      delete markersRef.current[key];
-    }
-  }
-
+  // Update markers when participants prop changes
   useEffect(() => {
-    if (!mapReady || !ttMapRef.current || !sdkRef.current) return;
-    const seen: Record<string, boolean> = {};
-
-    participants.forEach((p) => {
-      if (!p.coords) return;
-      const key = `p-${p.id}`;
-      upsertMarker(key, p.coords, `<b>${p.name}</b>`, { color: "#1E90FF", avatarUrl: p.avatarUrl || undefined });
-      seen[key] = true;
-    });
-
-    Object.keys(markersRef.current).forEach((k) => {
-      if (k.startsWith("p-") && !seen[k]) removeMarker(k);
-    });
-
-    if (fitBounds) {
-      const bounds = new sdkRef.current.default.LngLatBounds();
-      let added = false;
-      participants.forEach(p => { if (p.coords) { bounds.extend([p.coords.lng, p.coords.lat]); added = true; } });
-      if (origin?.coords) { bounds.extend([origin.coords.lng, origin.coords.lat]); added = true; }
-      if (destination?.coords) { bounds.extend([destination.coords.lng, destination.coords.lat]); added = true; }
-      if (added) try { ttMapRef.current.fitBounds(bounds, { padding: 80, maxZoom: 15, duration: 500 }); } catch (e) { }
+    // only run on client
+    // @ts-ignore
+    const tt = (window as any).tt;
+    if (!tt || !mapRef.current) return;
+    for (const p of participants) {
+      upsertParticipantMarker(tt, p);
     }
-  }, [participants, mapReady, fitBounds, origin, destination]);
+    cleanupMarkers(participants.map((p) => p.id));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [participants.map((p) => (p.coords ? `${p.coords.lat},${p.coords.lon}` : p.id)).join("|")]);
 
-  useEffect(() => {
-    if (!mapReady || !ttMapRef.current) return;
-    removeMarker("origin");
-    if (origin?.coords) upsertMarker("origin", origin.coords, `<b>Origin</b>`, { color: "#2ECC71" });
-    removeMarker("destination");
-    if (destination?.coords) upsertMarker("destination", destination.coords, `<b>Destination</b>`, { color: "#E74C3C" });
-  }, [origin, destination, mapReady]);
-  
-  // Note: Route fetching logic is removed from here as it's now handled externally
-  // by the new /api/matrix-eta endpoint and the TripRoomClient's useEffect.
-  // The map controller is now only responsible for displaying markers.
-
-  return <div ref={mapRef} className={className} style={{ width: "100%", height: "100%", ...(style || {}) }} />;
+  return <div ref={containerRef} style={{ width: "100%", height: "100%", minHeight: 420, ...style }} />;
 }
