@@ -1,7 +1,8 @@
+
 // src/components/trip/TripRoomClient.tsx
 "use client";
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useState, useCallback } from "react";
 import dynamic from "next/dynamic";
 import useTripRealtime from "@/hooks/useTripRealtime";
 import useLiveLocation from "@/hooks/useLiveLocation";
@@ -28,21 +29,22 @@ export default function TripRoomClient({ tripId, currentUser, initialTrip = null
   // Realtime participants from Firestore / fallback
   const { participants: realtimeParticipants, status } = useTripRealtime(tripId);
 
-  // Publish current user's live location (if currentUser provided)
+  // Publish current user's live location
   useLiveLocation(tripId, currentUser ?? { id: "anon", name: "Guest" }, { watchIntervalMs: 5000, enableWatch: true });
 
   // Local state for trip metadata
   const [tripMeta, setTripMeta] = useState<any>(initialTrip);
-
-  // Local state for ETAs reported by server (matrix) or fallback
-  const [etas, setEtas] = useState<Record<string, { etaSeconds: number | null; distanceMeters: number | null }>>({});
   
-  const handleParticipantETA = (id: string, info: { etaSeconds: number | null, distanceMeters: number | null }) => {
-      setEtas(prev => ({...prev, [id]: info}));
-  };
+  // State to hold latest ETA & distance per participant id, updated by the map controller
+  const [participantETAs, setParticipantETAs] = useState<Record<string, { etaSeconds: number | null; distanceMeters: number | null }>>({});
 
-  // Convert realtime participants into the shape Map expects
-  const participants = useMemo(() => {
+  // Callback used by the map to push ETA updates up to this component
+  const handleParticipantETA = useCallback((id: string, data: { etaSeconds: number | null; distanceMeters: number | null }) => {
+    setParticipantETAs(prev => ({ ...prev, [id]: data }));
+  }, []);
+
+  // Convert realtime participants array into the shape the Map Controller expects
+  const participantsForMap = useMemo(() => {
     return (realtimeParticipants || []).map((p: any) => ({
       id: p.id,
       name: p.name || "Unknown",
@@ -51,17 +53,17 @@ export default function TripRoomClient({ tripId, currentUser, initialTrip = null
     })) as Participant[];
   }, [realtimeParticipants]);
 
-  // Sorted ETA list for UI
+  // Sorted ETA list for UI, derived from map controller updates
   const friendsETAList = useMemo(() => {
-    return participants
+    return participantsForMap
       .map((p) => {
-        const e = etas[p.id] || { etaSeconds: null, distanceMeters: null };
+        const e = participantETAs[p.id] || { etaSeconds: null, distanceMeters: null };
         return {
           id: p.id,
           name: p.name,
           etaSeconds: e.etaSeconds,
           distanceMeters: e.distanceMeters,
-          coords: p.coords ? {lat: p.coords.lat, lng: p.coords.lon } : undefined,
+          coords: p.coords ? {lat: p.coords.lat, lon: p.coords.lng } : undefined,
         };
       })
       .sort((a, b) => {
@@ -69,7 +71,7 @@ export default function TripRoomClient({ tripId, currentUser, initialTrip = null
         const tb = b.etaSeconds ?? Infinity;
         return ta - tb;
       });
-  }, [participants, etas]);
+  }, [participantsForMap, participantETAs]);
 
   // Fetch initial trip metadata if not provided
   useEffect(() => {
@@ -94,8 +96,8 @@ export default function TripRoomClient({ tripId, currentUser, initialTrip = null
               ...tripMeta?.destination,
               coords: tripMeta?.destination ? { lon: tripMeta.destination.lng, lat: tripMeta.destination.lat } : undefined,
           }}
-          participants={participants}
-          computeRoutes={true}
+          participants={participantsForMap}
+          computeRoutes={true} // This enables the ETA polling in the controller
           onParticipantETA={handleParticipantETA}
         />
       </div>
@@ -143,7 +145,7 @@ export default function TripRoomClient({ tripId, currentUser, initialTrip = null
 
         <div style={{ marginTop: 16 }}>
           <div style={{ fontWeight: 700, marginBottom: 6 }}>Debug</div>
-          <div style={{ fontSize: 13, color: "#666" }}>Participants: {participants.length}</div>
+          <div style={{ fontSize: 13, color: "#666" }}>Participants: {participantsForMap.length}</div>
         </div>
       </aside>
     </div>
