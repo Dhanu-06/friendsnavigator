@@ -45,7 +45,9 @@ export default function TripPage() {
   React.useEffect(() => {
     if (lastPosition && currentUser) {
       const participantUpdate = {
-        ...currentUser,
+        id: currentUser.id,
+        name: currentUser.name,
+        avatarUrl: currentUser.avatarUrl,
         lat: lastPosition.lat,
         lng: lastPosition.lng,
         coords: { lat: lastPosition.lat, lng: lastPosition.lng },

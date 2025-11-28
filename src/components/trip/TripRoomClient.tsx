@@ -5,9 +5,10 @@ import dynamic from 'next/dynamic';
 
 import useReverseGeocode from '@/hooks/useReverseGeocode';
 import RideButton from './RideButton';
+import { useUser } from '@/firebase/auth/use-user';
 import { Card, CardContent } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { ParticipantsList, type Participant } from './ParticipantsList';
+import { ParticipantsList, type Participant as ParticipantWithETA } from './ParticipantsList';
 import { ChatBox, type Message } from './ChatBox';
 import { ExpenseCalculator, type Expense } from './ExpenseCalculator';
 import { TripCodeBadge } from './TripCodeBadge';
@@ -18,6 +19,15 @@ import { Wifi, WifiOff } from 'lucide-react';
 const TomTomMapController = dynamic(() => import('./TomTomMapController'), {
   ssr: false,
 });
+
+type Participant = {
+  id: string;
+  name: string;
+  avatarUrl?: string;
+  lat?: number;
+  lng?: number;
+  coords?: { lat: number; lng: number };
+};
 
 type TripRoomClientProps = {
   tripId: string;
@@ -94,6 +104,19 @@ export default function TripRoomClient({
       })).sort((a,b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
   }, [messages, currentUser.id]);
 
+  const participantsWithETA = useMemo(() => {
+    return participants.map(p => {
+        const etaData = participantETAs[p.id];
+        const etaString = etaData?.etaSeconds != null ? `${Math.round(etaData.etaSeconds / 60)} min` : '...';
+        return {
+            ...p,
+            eta: etaString,
+            status: 'On the way', // Note: status logic can be enhanced
+        };
+    }) as ParticipantWithETA[];
+  }, [participants, participantETAs]);
+
+
   return (
     <div className="w-full h-full flex flex-col md:flex-row" style={{ minHeight: 360 }}>
       <div className="flex-1 min-h-[360px] md:min-h-full relative">
@@ -125,11 +148,7 @@ export default function TripRoomClient({
           
           <TabsContent value="participants" className="flex-1 overflow-y-auto">
              <Card className="border-none shadow-none rounded-none">
-                <ParticipantsList participants={participants.map(p => ({
-                    ...p,
-                    eta: participantETAs[p.id] ? `${Math.round((participantETAs[p.id]?.etaSeconds ?? 0) / 60)} min` : '...',
-                    status: 'On the way', // Note: status logic can be enhanced
-                }))} />
+                <ParticipantsList participants={participantsWithETA} />
              </Card>
           </TabsContent>
 
