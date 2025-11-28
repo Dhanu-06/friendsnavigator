@@ -2,7 +2,6 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import dynamic from 'next/dynamic';
-import type { User as AuthUser } from 'firebase/auth';
 
 import useReverseGeocode from '@/hooks/useReverseGeocode';
 import { Card } from '../ui/card';
@@ -18,7 +17,6 @@ import useTripRealtime from '@/hooks/useTripRealtime';
 import useLiveLocation from '@/hooks/useLiveLocation';
 import { useUser } from '@/firebase/auth/use-user';
 import RideButton from './RideButton';
-import type { LatLng } from '@/utils/rideLinks';
 import RoutePolyline from '@/components/RoutePolyline';
 
 // dynamic import for SSR-safety: TomTomMapController uses window and TomTom SDK
@@ -51,7 +49,7 @@ export default function TripRoomClient({ tripId }: { tripId: string }) {
     };
   }, [authUser]);
 
-  const { participants, messages, expenses, tripDoc, status, joinOrUpdateParticipant, sendMessage, addExpense } = useTripRealtime(tripId, currentUser);
+  const { participants, messages, expenses, tripDoc, status, sendMessage, addExpense } = useTripRealtime(tripId, currentUser);
 
   useLiveLocation(tripId, currentUser, { enableWatch: true });
 

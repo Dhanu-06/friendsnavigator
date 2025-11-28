@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
@@ -11,6 +10,7 @@ import {
   serverTimestamp,
   setDoc,
   type Firestore,
+  getDoc,
 } from 'firebase/firestore';
 
 import { getFirebaseInstances } from '@/lib/firebaseClient';
@@ -47,12 +47,22 @@ export type Expense = {
   label: string;
 };
 
+export type TripDoc = {
+    id: string;
+    participants: Participant[];
+    messages: Message[];
+    expenses: Expense[];
+    pickup?: { lat: number, lng: number };
+    destination?: { lat: number, lng: number };
+};
+
 const useEmulator = process.env.NEXT_PUBLIC_USE_FIREBASE_EMULATOR === 'true';
 
 export default function useTripRealtime(
   tripId: string,
   currentUser: { id: string; name: string; avatarUrl: string } | null
 ) {
+  const [tripDoc, setTripDoc] = useState<TripDoc | null>(null);
   const [participants, setParticipants] = useState<Participant[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
   const [expenses, setExpenses] = useState<Expense[]>([]);
@@ -68,6 +78,7 @@ export default function useTripRealtime(
       setParticipants([]);
       setMessages([]);
       setExpenses([]);
+      setTripDoc(null);
       setStatus('offline');
       return;
     }
@@ -80,6 +91,7 @@ export default function useTripRealtime(
     try {
       const localTrip = getTripLocal(tripId);
       if (localTrip) {
+        setTripDoc(localTrip);
         setParticipants(localTrip.participants || []);
         setMessages(localTrip.messages || []);
         setExpenses(localTrip.expenses || []);
@@ -89,12 +101,19 @@ export default function useTripRealtime(
     }
     
     // Add current user to participants list on load
-    joinOrUpdateParticipant({
-        id: currentUser.id,
-        name: currentUser.name,
-        avatarUrl: currentUser.avatarUrl,
-    });
-
+    if (currentUser) {
+        const p = {
+            id: currentUser.id,
+            name: currentUser.name,
+            avatarUrl: currentUser.avatarUrl,
+        };
+        const trip = getTripLocal(tripId) || { id: tripId, participants: [], messages: [], expenses: [] };
+        if (!trip.participants.some((par: Participant) => par.id === p.id)) {
+            trip.participants.push(p);
+            saveTripLocal(tripId, trip);
+            setParticipants([...trip.participants]);
+        }
+    }
 
     if (!useEmulator) {
       console.warn('Realtime hook: Emulator disabled. Operating in offline mode.');
@@ -108,6 +127,28 @@ export default function useTripRealtime(
         throw new Error('Firestore not initialized.');
       }
       firestoreRef.current = firestore;
+
+      const docRef = doc(firestore, 'trips', tripId);
+      const mainUnsub = onSnapshot(docRef, 
+        (snap) => {
+            const data = snap.data() as TripDoc;
+            if (data) {
+                setTripDoc(data);
+                saveTripLocal(tripId, data);
+            }
+        },
+        async (err) => {
+            setError(err);
+            setStatus('offline');
+            const permissionError = new FirestorePermissionError({
+              path: docRef.path,
+              operation: 'get',
+            });
+            errorEmitter.emit('permission-error', permissionError);
+        }
+      );
+      unsubs.current.push(mainUnsub);
+
 
       const setupSubscription = (
         colName: 'participants' | 'messages' | 'expenses',
@@ -168,37 +209,8 @@ export default function useTripRealtime(
     return () => {
       unsubs.current.forEach((u) => u());
     };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tripId, currentUser?.id]);
-
-  const joinOrUpdateParticipant = async (p: Partial<Participant> & { id: string }) => {
-    if (!tripId) return;
-    const trip = getTripLocal(tripId) || {
-      id: tripId,
-      participants: [],
-      messages: [],
-      expenses: [],
-    };
-    const existingIdx = trip.participants.findIndex((par: Participant) => par.id === p.id);
-    if (existingIdx !== -1) {
-        trip.participants[existingIdx] = { ...trip.participants[existingIdx], ...p };
-    } else {
-        trip.participants.push(p);
-    }
-    saveTripLocal(tripId, trip);
-    setParticipants([...trip.participants]);
-
-    if ((status === 'online' || useEmulator) && firestoreRef.current) {
-        const docRef = doc(firestoreRef.current, 'trips', tripId, 'participants', p.id);
-        setDoc(docRef, p, { merge: true }).catch(async (err) => {
-            const permissionError = new FirestorePermissionError({
-                path: docRef.path,
-                operation: 'update',
-                requestResourceData: p
-            });
-            errorEmitter.emit('permission-error', permissionError);
-        });
-    }
-  };
 
   const sendMessage = async (text: string) => {
     if (!tripId || !currentUser) return;
@@ -264,12 +276,12 @@ export default function useTripRealtime(
   };
 
   return {
+    tripDoc,
     participants,
     messages,
     expenses,
     status,
     error,
-    joinOrUpdateParticipant,
     sendMessage,
     addExpense,
   };
