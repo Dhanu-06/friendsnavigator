@@ -1,26 +1,48 @@
 // src/firebase/provider.tsx
 "use client";
 
-import React, { createContext, useContext } from "react";
+import React, { createContext, useContext, useMemo } from "react";
 import { getFirebaseInstances } from "@/lib/firebaseClient";
+import type { FirebaseApp } from "firebase/app";
 import type { Auth } from "firebase/auth";
-import { FirebaseErrorListener } from "@/components/FirebaseErrorListener";
+import type { Firestore } from "firebase/firestore";
+import { FirebaseErrorListener } from '@/components/FirebaseErrorListener';
 
-const AuthContext = createContext<Auth | null>(null);
+type FirebaseContextType = {
+  app: FirebaseApp | null;
+  auth: Auth | null;
+  firestore: Firestore | null;
+};
+
+const FirebaseContext = createContext<FirebaseContextType | undefined>(undefined);
 
 export function FirebaseProvider({ children }: { children: React.ReactNode }) {
-  // The auth object is ready as soon as firebaseClient is imported.
-  // We get it from our single, reliable source.
-  const { auth } = getFirebaseInstances();
-  
+  const memoizedValue = useMemo(() => {
+    try {
+      const { app, auth, firestore } = getFirebaseInstances();
+      return { app, auth, firestore };
+    } catch (e) {
+      console.error("Firebase initialization failed in provider", e);
+      return { app: null, auth: null, firestore: null };
+    }
+  }, []);
+
   return (
-    <AuthContext.Provider value={auth}>
+    <FirebaseContext.Provider value={memoizedValue}>
       {children}
       <FirebaseErrorListener />
-    </AuthContext.Provider>
+    </FirebaseContext.Provider>
   );
 }
 
-export function useAuth(): Auth | null {
-  return useContext(AuthContext);
+export function useFirebase() {
+  const context = useContext(FirebaseContext);
+  if (context === undefined) {
+    throw new Error("useFirebase must be used within a FirebaseProvider");
+  }
+  return context;
 }
+
+export const useFirebaseApp = () => useFirebase()?.app;
+export const useAuth = () => useFirebase()?.auth;
+export const useFirestore = () => useFirebase()?.firestore;

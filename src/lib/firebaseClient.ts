@@ -41,10 +41,9 @@ try {
     });
 }
 
-
 // Emulator will be used only when NEXT_PUBLIC_USE_FIREBASE_EMULATOR === "true".
 if (process.env.NEXT_PUBLIC_USE_FIREBASE_EMULATOR === "true") {
-    console.info("[firebaseClient] Using Firebase Emulators");
+  console.info("[firebaseClient] Using Firebase Emulators");
     
     const authHost = process.env.NEXT_PUBLIC_FIREBASE_AUTH_EMULATOR_HOST;
     if (authHost) {
