@@ -17,6 +17,7 @@ const FirebaseContext = createContext<{
 export function FirebaseProvider({ children }: { children: React.ReactNode }) {
   const instances = useMemo(() => {
     try {
+      // getFirebaseInstances is now the single source of truth for initialization.
       return getFirebaseInstances();
     } catch (e) {
       console.error("Firebase initialization failed in provider", e);
