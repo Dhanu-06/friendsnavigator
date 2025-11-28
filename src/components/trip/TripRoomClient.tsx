@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
@@ -16,6 +15,8 @@ type Participant = {
   lat: number;
   lng: number;
 };
+
+const COMPUTE_ROUTES_KEY = 'trip_compute_routes_enabled_v1';
 
 export default function TripRoomClient({
   tripId,
@@ -46,6 +47,26 @@ export default function TripRoomClient({
   // origin/destination deduced from Firestore doc (if present) or fallbacks
   const [originState, setOriginState] = useState<{ lat: number; lng: number } | null>(null);
   const [destinationState, setDestinationState] = useState<{ lat: number; lng: number } | null>(null);
+
+  // Toggle: compute routes & ETA polling (persisted)
+  const [computeRoutesEnabled, setComputeRoutesEnabled] = useState<boolean>(() => {
+    try {
+      const raw = typeof window !== 'undefined' ? window.localStorage.getItem(COMPUTE_ROUTES_KEY) : null;
+      if (raw === null) return true; // default ON
+      return raw === '1';
+    } catch {
+      return true;
+    }
+  });
+
+  // Sync toggle to localStorage
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(COMPUTE_ROUTES_KEY, computeRoutesEnabled ? '1' : '0');
+    } catch (e) {
+      // ignore
+    }
+  }, [computeRoutesEnabled]);
 
   // If no origin/destination from server, use first two participants as fallback
   useEffect(() => {
@@ -103,23 +124,20 @@ export default function TripRoomClient({
 
     (async () => {
       try {
-        // 1) Try to use an existing client export if available
-        // This file path is common in many repos. If you maintain a custom path, the dynamic import may fail and we'll fallback.
         let firestore: any = null;
         try {
-          // try known project export paths
-          const mod = await import('@/firebase/client').catch(() => null) || await import('@/lib/firebaseClient').catch(() => null);
+          const mod =
+            (await import('@/firebase/client').catch(() => null)) ||
+            (await import('@/lib/firebaseClient').catch(() => null));
           if (mod) {
-            // Accept either named exports or default
-            // If the module exports 'firestore' or 'db' prefer them, otherwise try to call getFirestore(mod.app)
             if (mod.firestore) {
-              firestore = mod.firestore;
+                firestore = mod.firestore;
             } else if (mod.db) {
-              firestore = mod.db;
+                firestore = mod.db;
             } else if (mod.default && mod.default.firestore) {
-              firestore = mod.default.firestore;
+                firestore = mod.default.firestore;
             } else if (mod.getFirestore && mod.app) {
-              firestore = mod.getFirestore(mod.app);
+                firestore = mod.getFirestore(mod.app);
             } else if (mod.getFirebaseInstances) {
               const instances = mod.getFirebaseInstances();
               if (instances && instances.firestore) firestore = instances.firestore;
@@ -129,10 +147,8 @@ export default function TripRoomClient({
           // ignore and fallback to client-side init below
         }
 
-        // 2) If we still don't have firestore, initialize using Firebase JS SDK (client)
         if (!firestore) {
           try {
-            // dynamic import to keep SDK out of server bundles
             const firebaseAppModule = await import('firebase/app').catch(() => null);
             const firebaseFirestoreModule = await import('firebase/firestore').catch(() => null);
             if (!firebaseAppModule || !firebaseFirestoreModule) {
@@ -142,13 +158,11 @@ export default function TripRoomClient({
             const { initializeApp, getApps } = await import('firebase/app');
             const { getFirestore } = await import('firebase/firestore');
 
-            // use env vars to initialize (ensure NEXT_PUBLIC_FIREBASE_PROJECT_ID etc are set)
             const conf = {
               apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
               authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
               projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
               appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
-              // other optional fields: storageBucket, messagingSenderId
             };
 
             if (!getApps().length) {
@@ -166,7 +180,6 @@ export default function TripRoomClient({
           return;
         }
 
-        // now subscribe to the trips/{tripId} doc
         const { doc, onSnapshot } = await import('firebase/firestore').catch(() => ({ doc: null, onSnapshot: null }));
         if (!doc || !onSnapshot) {
           console.warn('firebase/firestore did not export expected functions; subscription unavailable.');
@@ -180,31 +193,24 @@ export default function TripRoomClient({
             if (!mounted) return;
             const data = snap.exists ? snap.data() : null;
             if (!data) {
-              // if doc missing, keep current participants or clear depending on preference
-              // setParticipantsArray([]);
               return;
             }
 
-            // Expect participants array
             const list = Array.isArray(data.participants) ? data.participants : [];
-            // Normalize items to { id, name, lat, lng }
             const normalized: Participant[] = list
               .map((it: any) => {
                 if (!it) return null;
-                // if stored as map keyed by id, convert to array
-                if (it.id && (it.lat != null || it.lng != null || it.coords)) {
+                 if (it.id && (it.lat != null || it.lng != null || it.coords)) {
                     const lat = it.lat ?? it.coords?.lat;
                     const lng = it.lng ?? it.coords?.lng;
                     if (lat != null && lng != null) {
                          return { id: String(it.id), name: it.name ?? undefined, lat: Number(lat), lng: Number(lng) } as Participant;
                     }
                 }
-                // if stored as { uid: { lat, lng, name } } handle that case
                 return null;
               })
               .filter(Boolean) as Participant[];
 
-            // If participants stored as object map instead of array, try conversion
             if (normalized.length === 0 && typeof data.participants === 'object' && !Array.isArray(data.participants)) {
               const arr: Participant[] = [];
               Object.entries(data.participants).forEach(([k, v]) => {
@@ -226,7 +232,6 @@ export default function TripRoomClient({
               setParticipantsArray(normalized);
             }
 
-            // pickup / destination updates if present
             if (data.pickup && (data.pickup.lat != null || data.pickup.lng != null)) {
               setOriginState({ lat: Number(data.pickup.lat), lng: Number(data.pickup.lng) });
             }
@@ -258,13 +263,14 @@ export default function TripRoomClient({
 
   /* -----------------------------------------
      Render UI: TomTomMapController + sidebar
+     - includes the new toggle to enable/disable computeRoutes ( ETA polling & route drawing )
      ----------------------------------------- */
   return (
     <div className={className || 'w-full h-full flex'} style={{ minHeight: 360 }}>
       <div style={{ flex: 1, minHeight: 360 }}>
         <TomTomMapController
           participants={participantsById}
-          computeRoutes={true}
+          computeRoutes={computeRoutesEnabled}
           onParticipantETA={handleParticipantETA}
           followId={followId}
           initialCenter={{ lat: pickupLat, lng: pickupLng }}
@@ -280,14 +286,38 @@ export default function TripRoomClient({
           <div style={{ fontSize: 12, color: '#666' }}>{participantsArray.length} participants</div>
         </div>
 
+        {/* Toggle UI */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10, gap: 8 }}>
+          <div>
+            <div style={{ fontWeight: 700 }}>Live ETA & Route</div>
+            <div style={{ fontSize: 12, color: '#666' }}>Toggle real-time ETA polling and route drawing</div>
+          </div>
+
+          <div>
+            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={computeRoutesEnabled}
+                onChange={(e) => setComputeRoutesEnabled(e.target.checked)}
+                style={{ width: 18, height: 18, cursor: 'pointer' }}
+              />
+              <span style={{ fontSize: 13 }}>{computeRoutesEnabled ? 'On' : 'Off'}</span>
+            </label>
+          </div>
+        </div>
+
         <section style={{ marginBottom: 12 }}>
           <div style={{ fontSize: 13, color: '#333', fontWeight: 600 }}>Pickup</div>
-          <div style={{ fontSize: 13, color: '#444' }}>{pickupName ?? pickupShort ?? `${(originState ?? { lat: pickupLat }).lat.toFixed(5)}, ${(originState ?? { lng: pickupLng }).lng.toFixed(5)}`}</div>
+          <div style={{ fontSize: 13, color: '#444' }}>
+            {pickupName ?? pickupShort ?? `${(originState ?? { lat: pickupLat }).lat.toFixed(5)}, ${(originState ?? { lng: pickupLng }).lng.toFixed(5)}`}
+          </div>
         </section>
 
         <section style={{ marginBottom: 12 }}>
           <div style={{ fontSize: 13, color: '#333', fontWeight: 600 }}>Destination</div>
-          <div style={{ fontSize: 13, color: '#444' }}>{destName ?? destShort ?? `${(destinationState ?? { lat: destLat }).lat.toFixed(5)}, ${(destinationState ?? { lng: destLng }).lng.toFixed(5)}`}</div>
+          <div style={{ fontSize: 13, color: '#444' }}>
+            {destName ?? destShort ?? `${(destinationState ?? { lat: destLat }).lat.toFixed(5)}, ${(destinationState ?? { lng: destLng }).lng.toFixed(5)}`}
+          </div>
         </section>
 
         <div style={{ marginTop: 8, marginBottom: 12 }}>
@@ -328,23 +358,37 @@ export default function TripRoomClient({
         <div style={{ marginTop: 8 }}>
           <div style={{ fontWeight: 700, marginBottom: 8 }}>Book a ride</div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            <RideButton provider="uber" pickup={{ lat: (originState ?? { lat: pickupLat }).lat, lng: (originState ?? { lng: pickupLng }).lng, name: pickupName ?? pickupShort }} drop={{ lat: (destinationState ?? { lat: destLat }).lat, lng: (destinationState ?? { lng: destLng }).lng, name: destName ?? destShort }}>
+            <RideButton
+              provider="uber"
+              pickup={{ lat: (originState ?? { lat: pickupLat }).lat, lng: (originState ?? { lng: pickupLng }).lng, name: pickupName ?? pickupShort }}
+              drop={{ lat: (destinationState ?? { lat: destLat }).lat, lng: (destinationState ?? { lng: destLng }).lng, name: destName ?? destShort }}
+            >
               Uber
             </RideButton>
-            <RideButton provider="ola" pickup={{ lat: (originState ?? { lat: pickupLat }).lat, lng: (originState ?? { lng: pickupLng }).lng, name: pickupName ?? pickupShort }} drop={{ lat: (destinationState ?? { lat: destLat }).lat, lng: (destinationState ?? { lng: destLng }).lng, name: destName ?? destShort }}>
+            <RideButton
+              provider="ola"
+              pickup={{ lat: (originState ?? { lat: pickupLat }).lat, lng: (originState ?? { lng: pickupLng }).lng, name: pickupName ?? pickupShort }}
+              drop={{ lat: (destinationState ?? { lat: destLat }).lat, lng: (destinationState ?? { lng: destLng }).lng, name: destName ?? destShort }}
+            >
               Ola
             </RideButton>
-            <RideButton provider="rapido" pickup={{ lat: (originState ?? { lat: pickupLat }).lat, lng: (originState ?? { lng: pickupLng }).lng, name: pickupName ?? pickupShort }} drop={{ lat: (destinationState ?? { lat: destLat }).lat, lng: (destinationState ?? { lng: destLng }).lng, name: destName ?? destShort }}>
+            <RideButton
+              provider="rapido"
+              pickup={{ lat: (originState ?? { lat: pickupLat }).lat, lng: (originState ?? { lng: pickupLng }).lng, name: pickupName ?? pickupShort }}
+              drop={{ lat: (destinationState ?? { lat: destLat }).lat, lng: (destinationState ?? { lng: destLng }).lng, name: destName ?? destShort }}
+            >
               Rapido
             </RideButton>
-            <RideButton provider="transit" pickup={{ lat: (originState ?? { lat: pickupLat }).lat, lng: (originState ?? { lng: pickupLng }).lng }} drop={{ lat: (destinationState ?? { lat: destLat }).lat, lng: (destinationState ?? { lng: destLng }).lng }}>
+            <RideButton
+              provider="transit"
+              pickup={{ lat: (originState ?? { lat: pickupLat }).lat, lng: (originState ?? { lng: pickupLng }).lng }}
+              drop={{ lat: (destinationState ?? { lat: destLat }).lat, lng: (destinationState ?? { lng: destLng }).lng }}
+            >
               Transit
-            </RideButton>
+            </Button>
           </div>
         </div>
       </aside>
     </div>
   );
 }
-
-    
