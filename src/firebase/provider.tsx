@@ -1,3 +1,4 @@
+
 // src/firebase/provider.tsx
 "use client";
 
@@ -8,17 +9,19 @@ import type { Auth } from "firebase/auth";
 import type { Firestore } from "firebase/firestore";
 import { FirebaseErrorListener } from '@/components/FirebaseErrorListener';
 
-const FirebaseContext = createContext<{
+type FirebaseContextType = {
   app: FirebaseApp | null;
   auth: Auth | null;
   firestore: Firestore | null;
-} | undefined>(undefined);
+};
+
+const FirebaseContext = createContext<FirebaseContextType | undefined>(undefined);
 
 export function FirebaseProvider({ children }: { children: React.ReactNode }) {
-  const instances = useMemo(() => {
+  const memoizedValue = useMemo(() => {
     try {
-      // getFirebaseInstances is now the single source of truth for initialization.
-      return getFirebaseInstances();
+      const { app, auth, firestore } = getFirebaseInstances();
+      return { app, auth, firestore };
     } catch (e) {
       console.error("Firebase initialization failed in provider", e);
       return { app: null, auth: null, firestore: null };
@@ -26,7 +29,7 @@ export function FirebaseProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   return (
-    <FirebaseContext.Provider value={instances}>
+    <FirebaseContext.Provider value={memoizedValue}>
       {children}
       <FirebaseErrorListener />
     </FirebaseContext.Provider>
@@ -41,9 +44,6 @@ export function useFirebase() {
   return context;
 }
 
-export function useAuth(): Auth | null {
-  return useFirebase()?.auth ?? null;
-}
-
 export const useFirebaseApp = () => useFirebase()?.app;
+export const useAuth = () => useFirebase()?.auth;
 export const useFirestore = () => useFirebase()?.firestore;
