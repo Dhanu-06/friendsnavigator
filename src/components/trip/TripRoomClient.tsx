@@ -1,8 +1,8 @@
-
 'use client';
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import dynamic from 'next/dynamic';
+import type { User as AuthUser } from 'firebase/auth';
 
 import useReverseGeocode from '@/hooks/useReverseGeocode';
 import { Card } from '../ui/card';
@@ -19,6 +19,7 @@ import useLiveLocation from '@/hooks/useLiveLocation';
 import { useUser } from '@/firebase/auth/use-user';
 import RideButton from './RideButton';
 import type { LatLng } from '@/utils/rideLinks';
+import RoutePolyline from '@/components/RoutePolyline';
 
 // dynamic import for SSR-safety: TomTomMapController uses window and TomTom SDK
 const TomTomMapController = dynamic(() => import('./TomTomMapController'), { ssr: false });
@@ -30,9 +31,16 @@ type Participant = {
   lng: number;
 };
 
+type RouteCoords = Array<{ latitude: number; longitude: number }>;
+
+
 export default function TripRoomClient({ tripId }: { tripId: string }) {
   const { toast } = useToast();
   const { user: authUser, loading: authLoading } = useUser();
+  const [mapInstance, setMapInstance] = useState<any>(null);
+  const [routeCoords, setRouteCoords] = useState<RouteCoords>([]);
+  const [routeSummary, setRouteSummary] = useState<{ travelTimeSeconds: number | null, distanceMeters: number | null;}>({ travelTimeSeconds: null, distanceMeters: null});
+
 
   const currentUser = useMemo(() => {
     if (!authUser) return null;
@@ -43,7 +51,7 @@ export default function TripRoomClient({ tripId }: { tripId: string }) {
     };
   }, [authUser]);
 
-  const { participants, messages, expenses, status, joinOrUpdateParticipant, sendMessage, addExpense } = useTripRealtime(tripId, currentUser);
+  const { participants, messages, expenses, tripDoc, status, joinOrUpdateParticipant, sendMessage, addExpense } = useTripRealtime(tripId, currentUser);
 
   useLiveLocation(tripId, currentUser, { enableWatch: true });
 
@@ -64,8 +72,9 @@ export default function TripRoomClient({ tripId }: { tripId: string }) {
   const [followId, setFollowId] = useState<string | null>(null);
 
   // origin/destination deduced from Firestore doc (if present) or fallbacks
-  const [originState, setOriginState] = useState<{ lat: number; lng: number } | null>(null);
-  const [destinationState, setDestinationState] = useState<{ lat: number; lng: number } | null>(null);
+  const originState = useMemo(() => tripDoc?.pickup ?? null, [tripDoc]);
+  const destinationState = useMemo(() => tripDoc?.destination ?? null, [tripDoc]);
+
 
   const [computeRoutesEnabled, setComputeRoutesEnabled] = useState<boolean>(() => {
     try {
@@ -78,21 +87,11 @@ export default function TripRoomClient({ tripId }: { tripId: string }) {
   });
 
 
-  // If no origin/destination from server, use first two participants as fallback
-  useEffect(() => {
-    if (!originState && participants[0]) {
-      setOriginState({ lat: participants[0].lat!, lng: participants[0].lng! });
-    }
-    if (!destinationState && participants[1]) {
-      setDestinationState({ lat: participants[1].lat!, lng: participants[1].lng! });
-    }
-  }, [participants, originState, destinationState]);
-
   // Reverse geocode friendly names (hook will cache and call /api/reverse-geocode)
   const pickupLat = originState?.lat ?? participants[0]?.lat ?? 12.9716;
   const pickupLng = originState?.lng ?? participants[0]?.lng ?? 77.5946;
-  const destLat = destinationState?.lat ?? participants[1]?.lat ?? 12.9750;
-  const destLng = destinationState?.lng ?? participants[1]?.lng ?? 77.5990;
+  const destLat = destinationState?.lat ?? 12.9750;
+  const destLng = destinationState?.lng ?? 77.5990;
 
   const { name: pickupName, shortName: pickupShort } = useReverseGeocode(pickupLat, pickupLng);
   const { name: destName, shortName: destShort } = useReverseGeocode(destLat, destLng);
@@ -148,7 +147,20 @@ export default function TripRoomClient({ tripId }: { tripId: string }) {
             initialZoom={13}
             origin={originState ?? { lat: pickupLat, lng: pickupLng }}
             destination={destinationState ?? { lat: destLat, lng: destLng }}
+            onMapReady={setMapInstance}
+            onRouteReady={(coords, summary) => {
+                setRouteCoords(coords);
+                setRouteSummary(summary);
+            }}
         />
+        {mapInstance && routeCoords.length > 0 && computeRoutesEnabled && (
+            <RoutePolyline
+                map={mapInstance}
+                routeCoords={routeCoords}
+                etaMinutes={routeSummary.travelTimeSeconds ? Math.round(routeSummary.travelTimeSeconds/60) : undefined}
+                id={`trip-${tripId}`}
+            />
+        )}
         <div className="absolute top-4 left-4 z-10">
             <Card className="p-2">
                 <TripCodeBadge code={tripId} onCopy={handleCopyCode} />

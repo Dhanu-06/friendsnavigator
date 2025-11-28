@@ -9,6 +9,8 @@ type Participant = {
   lng: number;
 };
 
+type RouteCoords = Array<{ latitude: number; longitude: number }>;
+
 type Props = {
   participants: Record<string, Participant>; // keyed by id
   computeRoutes?: boolean; // enable ETA polling + route drawing
@@ -19,6 +21,8 @@ type Props = {
   className?: string;
   origin?: { lat: number; lng: number } | null; // route origin (optional)
   destination?: { lat: number; lng: number } | null; // route destination (optional)
+  onMapReady?: (map: any) => void;
+  onRouteReady?: (coords: RouteCoords, summary: { travelTimeSeconds: number | null; distanceMeters: number | null; }) => void;
 };
 
 const TOMTOM_CSS = 'https://api.tomtom.com/maps-sdk-for-web/6.x/6.31.0/maps/maps.css';
@@ -37,6 +41,8 @@ export default function TomTomMapController({
   className,
   origin = null,
   destination = null,
+  onMapReady,
+  onRouteReady,
 }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<any | null>(null);
@@ -44,10 +50,6 @@ export default function TomTomMapController({
   const rafRef = useRef<Map<string, number>>(new Map());
   const pollTimerRef = useRef<number | null>(null);
   const [isReady, setIsReady] = useState(false);
-
-  // IDs for route source / layer
-  const ROUTE_SOURCE_ID = 'tt-route-source';
-  const ROUTE_LAYER_ID = 'tt-route-layer';
 
   /* --------------------------
      Load TomTom SDK (client-only)
@@ -118,6 +120,7 @@ export default function TomTomMapController({
       map.addControl(new tt.NavigationControl());
       mapRef.current = map;
       setIsReady(true);
+      if (onMapReady) onMapReady(map);
     } catch (e) {
       console.error('TomTom map init error', e);
     }
@@ -272,7 +275,6 @@ export default function TomTomMapController({
 
   /* --------------------------
      ETA polling (calls /api/matrix-eta every 5s when computeRoutes === true)
-     Normalizes several response shapes and calls onParticipantETA for each participant.
      -------------------------- */
   useEffect(() => {
     if (!isReady) return;
@@ -312,10 +314,7 @@ export default function TomTomMapController({
       const json = await res.json().catch(() => null);
       if (!json) return;
 
-      // Normalize common shapes (etas map, results array, map-of-maps)
       const normalized: Record<string, { etaSeconds: number | null; distanceMeters: number | null }> = {};
-
-      // 1) { etas: { id: { etaSeconds, distanceMeters } } }
       if (json.etas && typeof json.etas === 'object' && !Array.isArray(json.etas)) {
         Object.entries(json.etas).forEach(([id, v]) => {
           if (!v) return;
@@ -326,44 +325,10 @@ export default function TomTomMapController({
           };
         });
       }
-      // 2) results array [{id, etaSeconds, distanceMeters}, ...]
-      else if (Array.isArray(json.results)) {
-        json.results.forEach((it: any) => {
-          if (!it || !it.id) return;
-          normalized[it.id] = {
-            etaSeconds: it.etaSeconds ?? it.durationSeconds ?? it.duration ?? null,
-            distanceMeters: it.distanceMeters ?? it.distance ?? null,
-          };
-        });
-      }
-      // 3) array of objects with id at top level
-      else if (Array.isArray(json)) {
-        json.forEach((it: any) => {
-          if (!it || !it.id) return;
-          normalized[it.id] = {
-            etaSeconds: it.etaSeconds ?? it.durationSeconds ?? it.duration ?? null,
-            distanceMeters: it.distanceMeters ?? it.distance ?? null,
-          };
-        });
-      }
-      // 4) fallback: top-level map keyed by participant id
-      else if (typeof json === 'object') {
-        Object.entries(json).forEach(([k, v]) => {
-          const anyV = v as any;
-          if (anyV && (anyV.etaSeconds || anyV.distanceMeters || anyV.duration || anyV.distance)) {
-            normalized[k] = {
-              etaSeconds: anyV.etaSeconds ?? anyV.durationSeconds ?? anyV.duration ?? null,
-              distanceMeters: anyV.distanceMeters ?? anyV.distance ?? null,
-            };
-          }
-        });
-      }
-
-      // Dispatch normalized ETAs
+      
       Object.entries(normalized).forEach(([id, val]) => {
         try {
           onParticipantETA && onParticipantETA(id, { etaSeconds: val.etaSeconds ?? null, distanceMeters: val.distanceMeters ?? null });
-          // Update popup text too if marker exists
           const data = markersRef.current.get(id);
           if (data && data.popupEl) {
             const baseName = (participants[id] && participants[id].name) || data.popupEl.innerText.split('|', 1)[0].trim();
@@ -387,26 +352,19 @@ export default function TomTomMapController({
   }
 
   /* --------------------------
-     Route drawing: call /api/route to get GeoJSON LineString and draw on map
-     - We trigger when computeRoutes is true and origin & destination are provided
-     - The server handles TomTom key & normalization
+     Route fetching (but not drawing)
      -------------------------- */
   useEffect(() => {
     if (!isReady || !mapRef.current) return;
-    if (!computeRoutes) {
-      removeRouteLayer();
+    if (!computeRoutes || !origin || !destination) {
+      if (onRouteReady) onRouteReady([], { travelTimeSeconds: null, distanceMeters: null });
       return;
     }
-    if (!origin || !destination) {
-      // nothing to do
-      removeRouteLayer();
-      return;
-    }
-    fetchAndDrawRoute(origin, destination);
+    fetchRoute(origin, destination);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isReady, computeRoutes, origin?.lat, origin?.lng, destination?.lat, destination?.lng]);
 
-  async function fetchAndDrawRoute(originArg: { lat: number; lng: number }, destinationArg: { lat: number; lng: number }) {
+  async function fetchRoute(originArg: { lat: number; lng: number }, destinationArg: { lat: number; lng: number }) {
     try {
       const res = await fetch('/api/route', {
         method: 'POST',
@@ -414,81 +372,32 @@ export default function TomTomMapController({
         body: JSON.stringify({ origin: originArg, destination: destinationArg }),
       });
       if (!res.ok) {
-        // no route available; remove existing
-        removeRouteLayer();
+        if (onRouteReady) onRouteReady([], { travelTimeSeconds: null, distanceMeters: null });
         return;
       }
       const json = await res.json().catch(() => null);
       if (!json || !json.geojson || !Array.isArray((json.geojson as any).coordinates)) {
-        removeRouteLayer();
+        if (onRouteReady) onRouteReady([], { travelTimeSeconds: null, distanceMeters: null });
         return;
       }
-      drawGeoJsonRoute(json.geojson);
+
+      // Convert from [lng, lat] to { latitude, longitude } and pass to parent
+      const routeCoords: RouteCoords = json.geojson.coordinates.map((c: [number, number]) => ({
+        longitude: c[0],
+        latitude: c[1],
+      }));
+      const summary = {
+          travelTimeSeconds: json.summary?.travelTimeSeconds ?? null,
+          distanceMeters: json.summary?.distanceMeters ?? null,
+      };
+
+      if (onRouteReady) onRouteReady(routeCoords, summary);
+
     } catch (e) {
-      // ignore
+      if (onRouteReady) onRouteReady([], { travelTimeSeconds: null, distanceMeters: null });
     }
   }
 
-  function removeRouteLayer() {
-    const map = mapRef.current;
-    if (!map) return;
-    try {
-      if (map.getLayer && map.getLayer(ROUTE_LAYER_ID)) map.removeLayer(ROUTE_LAYER_ID);
-      if (map.getSource && map.getSource(ROUTE_SOURCE_ID)) map.removeSource(ROUTE_SOURCE_ID);
-    } catch (e) {
-      // ignore
-    }
-  }
-
-  function drawGeoJsonRoute(geojson: { type: string; coordinates: Array<[number, number]> }) {
-    const map = mapRef.current;
-    if (!map) return;
-    if (!geojson || !Array.isArray(geojson.coordinates) || geojson.coordinates.length === 0) return;
-
-    try {
-      // Remove existing
-      removeRouteLayer();
-
-      // Add source
-      map.addSource(ROUTE_SOURCE_ID, {
-        type: 'geojson',
-        data: { type: 'Feature', geometry: { type: 'LineString', coordinates: geojson.coordinates } },
-      });
-
-      // Add layer
-      map.addLayer({
-        id: ROUTE_LAYER_ID,
-        type: 'line',
-        source: ROUTE_SOURCE_ID,
-        layout: { 'line-join': 'round', 'line-cap': 'round' },
-        paint: {
-          'line-color': '#1E90FF',
-          'line-width': 6,
-          'line-opacity': 0.95,
-        },
-      });
-
-      // Fit bounds to route
-      try {
-        const lats = geojson.coordinates.map((c) => c[1]);
-        const lons = geojson.coordinates.map((c) => c[0]);
-        const sw: [number, number] = [Math.min(...lons), Math.min(...lats)];
-        const ne: [number, number] = [Math.max(...lons), Math.max(...lats)];
-        map.fitBounds([sw, ne], { padding: 60, linear: true });
-      } catch (e) {
-        // ignore
-      }
-    } catch (e) {
-      // Some TomTom SDK versions throw if source/layer exists — ignore and try replace
-      try {
-        removeRouteLayer();
-        map.addSource(ROUTE_SOURCE_ID, {
-          type: 'geojson',
-          data: { type: 'Feature', geometry: { type: 'LineString', coordinates: geojson.coordinates } },
-        });
-      } catch (ee) {}
-    }
-  }
 
   /* --------------------------
      Render
