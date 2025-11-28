@@ -1,5 +1,5 @@
 
-// AUTO-PATCHED firebaseClient.ts
+// src/lib/firebaseClient.ts
 "use client";
 
 import { initializeApp, getApps, getApp, type FirebaseApp } from "firebase/app";
@@ -16,26 +16,11 @@ let firestoreInstance: Firestore | null = null;
 let authInstance: Auth | null = null;
 let isInitialized = false;
 
-// Quick safe probe to detect emulator reachability
-async function isEmulatorReachable(host: string, port: string) {
-  try {
-    // In the browser, we can't reliably ping a port without making a network request.
-    // We'll rely on the SDK's own connection attempts and handle errors gracefully.
-    // The logic in getFirebaseInstances will now handle this.
-    // For server-side checks, a different strategy would be needed.
-    return true; // Assume reachable and let the connection attempt prove otherwise.
-  } catch {
-    return false;
-  }
-}
-
 export function getFirebaseInstances() {
-  // Return cached instances if already initialized
-  if (isInitialized && firebaseApp && firestoreInstance && authInstance) {
-    return { app: firebaseApp, firestore: firestoreInstance, auth: authInstance };
+  if (isInitialized && firebaseApp && authInstance) {
+    return { app: firebaseApp, auth: authInstance, firestore: firestoreInstance };
   }
 
-  // Base config (required even for emulator)
   const firebaseConfig = {
     apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY || "dummy-key",
     authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
@@ -45,58 +30,53 @@ export function getFirebaseInstances() {
     appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
   };
 
-
   if (!getApps().length) {
     firebaseApp = initializeApp(firebaseConfig);
   } else {
     firebaseApp = getApps()[0];
   }
 
-  // Initialize Firestore with stable settings
-  try {
-      firestoreInstance = initializeFirestore(firebaseApp, {
-        ignoreUndefinedProperties: true,
-        // @ts-ignore
-        experimentalForceLongPolling: true,
-      });
-  } catch (e) {
-      firestoreInstance = getFirestore(firebaseApp);
-  }
-
-
   authInstance = getAuth(firebaseApp);
 
-  const useEmu = process.env.NEXT_PUBLIC_USE_FIREBASE_EMULATOR === "true";
-  const host = process.env.NEXT_PUBLIC_FIRESTORE_EMULATOR_HOST || "localhost";
-  const port = process.env.NEXT_PUBLIC_FIRESTORE_EMULATOR_PORT || "8080";
-  const authHost = process.env.NEXT_PUBLIC_FIREBASE_AUTH_EMULATOR_HOST || host;
-  const authPort = process.env.NEXT_PUBLIC_FIREBASE_AUTH_EMULATOR_PORT || "9099";
+  // Initialize Firestore separately to attach emulator if needed
+  // This check avoids re-initializing firestore if it's already configured.
+  try {
+      firestoreInstance = getFirestore(firebaseApp);
+  } catch (e) {
+      firestoreInstance = initializeFirestore(firebaseApp, {
+        ignoreUndefinedProperties: true,
+      });
+  }
+  
+  const useEmu = process.env.NEXT_PUBLIC_USE_FIREBASE_EMULATOR === 'true';
 
   if (useEmu) {
-      console.log("Attempting to connect to emulators...");
-      try {
-        // @ts-ignore
-        if (!firestoreInstance._settings.host) {
-            connectFirestoreEmulator(firestoreInstance, host, Number(port));
-            console.log(`Firestore emulator connected to ${host}:${port}`);
-        }
-      } catch (e) {
-        console.warn("Firestore emulator connect failed (safe):", e);
-      }
+    const host = process.env.NEXT_PUBLIC_FIRESTORE_EMULATOR_HOST || 'localhost';
+    const firestorePort = parseInt(process.env.NEXT_PUBLIC_FIRESTORE_EMULATOR_PORT || '8080', 10);
+    const authPort = parseInt(process.env.NEXT_PUBLIC_FIREBASE_AUTH_EMULATOR_PORT || '9099', 10);
 
+    // @ts-ignore - _settings is not a public property but it's a reliable way to check
+    if (firestoreInstance && !firestoreInstance._settings.host.includes(host)) {
       try {
-         // @ts-ignore
-        if (!authInstance.emulatorConfig) {
-            connectAuthEmulator(authInstance, `http://${authHost}:${authPort}`, {
-                disableWarnings: true,
-            });
-            console.log(`Auth emulator connected to http://${authHost}:${authPort}`);
-        }
+        connectFirestoreEmulator(firestoreInstance, host, firestorePort);
+        console.log(`Firestore emulator connected to ${host}:${firestorePort}`);
       } catch (e) {
-        console.warn("Auth emulator connect failed (safe):", e);
+        console.warn("Firestore emulator connection failed (safe to ignore if already connected):", e);
       }
+    }
+
+    // @ts-ignore - emulatorConfig is not in the type def
+    if (authInstance && !authInstance.emulatorConfig) {
+       try {
+        connectAuthEmulator(authInstance, `http://${host}:${authPort}`);
+        console.log(`Auth emulator connected to http://${host}:${authPort}`);
+       } catch (e) {
+        console.warn("Auth emulator connection failed (safe to ignore if already connected):", e);
+       }
+    }
   }
 
+
   isInitialized = true;
-  return { app: firebaseApp, firestore: firestoreInstance, auth: authInstance };
+  return { app: firebaseApp, auth: authInstance, firestore: firestoreInstance };
 }

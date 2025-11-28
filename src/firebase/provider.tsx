@@ -8,8 +8,6 @@ import type { FirebaseApp } from "firebase/app";
 import type { Auth } from "firebase/auth";
 import type { Firestore } from "firebase/firestore";
 import { FirebaseErrorListener } from '@/components/FirebaseErrorListener';
-import TempEmuCheck from "@/components/TempEmuCheck";
-
 
 type FirebaseContextType = {
   app: FirebaseApp | null;
@@ -20,7 +18,6 @@ type FirebaseContextType = {
 const FirebaseContext = createContext<FirebaseContextType | undefined>(undefined);
 
 export function FirebaseProvider({ children }: { children: React.ReactNode }) {
-  // The value is provided by the FirebaseClientProvider, which memoizes it.
   const memoizedValue = useMemo(() => {
     try {
       const { app, auth, firestore } = getFirebaseInstances();
@@ -35,7 +32,6 @@ export function FirebaseProvider({ children }: { children: React.ReactNode }) {
     <FirebaseContext.Provider value={memoizedValue}>
       {children}
       <FirebaseErrorListener />
-      <TempEmuCheck />
     </FirebaseContext.Provider>
   );
 }
