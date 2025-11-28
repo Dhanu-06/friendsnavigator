@@ -5,6 +5,7 @@ import dynamic from 'next/dynamic';
 
 import useReverseGeocode from '@/hooks/useReverseGeocode';
 import RideButton from './RideButton';
+import ComputeToggle from './ComputeToggle';
 
 // dynamic import for SSR-safety: TomTomMapController uses window and TomTom SDK
 const TomTomMapController = dynamic(() => import('./TomTomMapController'), { ssr: false });
@@ -58,15 +59,6 @@ export default function TripRoomClient({
       return true;
     }
   });
-
-  // Sync toggle to localStorage
-  useEffect(() => {
-    try {
-      window.localStorage.setItem(COMPUTE_ROUTES_KEY, computeRoutesEnabled ? '1' : '0');
-    } catch (e) {
-      // ignore
-    }
-  }, [computeRoutesEnabled]);
 
   // If no origin/destination from server, use first two participants as fallback
   useEffect(() => {
@@ -287,24 +279,10 @@ export default function TripRoomClient({
         </div>
 
         {/* Toggle UI */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10, gap: 8 }}>
-          <div>
-            <div style={{ fontWeight: 700 }}>Live ETA & Route</div>
-            <div style={{ fontSize: 12, color: '#666' }}>Toggle real-time ETA polling and route drawing</div>
-          </div>
-
-          <div>
-            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
-              <input
-                type="checkbox"
-                checked={computeRoutesEnabled}
-                onChange={(e) => setComputeRoutesEnabled(e.target.checked)}
-                style={{ width: 18, height: 18, cursor: 'pointer' }}
-              />
-              <span style={{ fontSize: 13 }}>{computeRoutesEnabled ? 'On' : 'Off'}</span>
-            </label>
-          </div>
+        <div style={{ marginBottom: 10, padding: '8px 0' }}>
+          <ComputeToggle value={computeRoutesEnabled} onChange={setComputeRoutesEnabled} />
         </div>
+
 
         <section style={{ marginBottom: 12 }}>
           <div style={{ fontSize: 13, color: '#333', fontWeight: 600 }}>Pickup</div>
@@ -385,7 +363,7 @@ export default function TripRoomClient({
               drop={{ lat: (destinationState ?? { lat: destLat }).lat, lng: (destinationState ?? { lng: destLng }).lng }}
             >
               Transit
-            </Button>
+            </RideButton>
           </div>
         </div>
       </aside>
