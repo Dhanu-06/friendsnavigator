@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
@@ -16,7 +17,7 @@ import { ExpenseCalculator } from './ExpenseCalculator';
 import useTripRealtime from '@/hooks/useTripRealtime';
 import useLiveLocation from '@/hooks/useLiveLocation';
 import { useUser } from '@/firebase/auth/use-user';
-import { RideButton } from './RideButton';
+import RideButton from './RideButton';
 import type { LatLng } from '@/utils/rideLinks';
 
 // dynamic import for SSR-safety: TomTomMapController uses window and TomTom SDK
@@ -96,9 +97,6 @@ export default function TripRoomClient({ tripId }: { tripId: string }) {
   const { name: pickupName, shortName: pickupShort } = useReverseGeocode(pickupLat, pickupLng);
   const { name: destName, shortName: destShort } = useReverseGeocode(destLat, destLng);
   
-  const pickup: LatLng = { latitude: pickupLat, longitude: pickupLng };
-  const dropoff: LatLng = { latitude: destLat, longitude: destLng };
-
   const handleCopyCode = () => {
     navigator.clipboard.writeText(tripId);
     toast({
@@ -174,21 +172,30 @@ export default function TripRoomClient({ tripId }: { tripId: string }) {
                      <div className="space-y-2 pt-4">
                       <h4 className="font-semibold">Book a ride</h4>
                        <div className="flex flex-wrap gap-2">
-                          <RideButton provider="uber" pickup={pickup} dropoff={dropoff} pickupName={pickupName ?? pickupShort} dropoffName={destName ?? destShort}>
-                            Book on Uber
-                          </RideButton>
-
-                          <RideButton provider="ola" pickup={pickup} dropoff={dropoff} pickupName={pickupName ?? pickupShort} dropoffName={destName ?? destShort}>
-                            Book on Ola
-                          </RideButton>
-
-                          <RideButton provider="rapido" pickup={pickup} dropoff={dropoff} pickupName={pickupName ?? pickupShort} dropoffName={destName ?? destShort}>
-                            Book on Rapido
-                          </RideButton>
-
-                          <RideButton provider="transit" pickup={pickup} dropoff={dropoff} dropoffName={destName ?? destShort}>
-                            Open Directions
-                          </RideButton>
+                          <RideButton
+                            provider="uber"
+                            pickup={{ latitude: pickupLat, longitude: pickupLng }}
+                            drop={{ latitude: destLat, longitude: destLng }}
+                            label="Book Uber"
+                          />
+                          <RideButton
+                            provider="ola"
+                            pickup={{ latitude: pickupLat, longitude: pickupLng }}
+                            drop={{ latitude: destLat, longitude: destLng }}
+                            label="Book Ola"
+                          />
+                          <RideButton
+                            provider="rapido"
+                            pickup={{ latitude: pickupLat, longitude: pickupLng }}
+                            drop={{ latitude: destLat, longitude: destLng }}
+                            label="Book Rapido"
+                          />
+                          <RideButton
+                            provider="transit"
+                            pickup={{ latitude: pickupLat, longitude: pickupLng }}
+                            drop={{ latitude: destLat, longitude: destLng }}
+                            label="Open Maps"
+                          />
                        </div>
                     </div>
                 </div>
