@@ -33,19 +33,21 @@ export default function DashboardPage() {
     loadRecentTrips();
   }, []);
 
+  useEffect(() => {
+    if (!loading && !user) {
+      router.push('/auth/login');
+    }
+  }, [user, loading, router]);
+
+
   const handleJoinSuccess = (tripId: string) => {
     router.push(`/trips/${tripId}`);
   };
 
-  if (loading) {
+  if (loading || !user) {
     return <div className="flex h-screen items-center justify-center">Loading...</div>
   }
   
-  if (!user) {
-    router.push('/auth/login');
-    return null;
-  }
-
   const currentUser = {
     uid: user.uid,
     name: user.displayName || user.email || 'Anonymous',
