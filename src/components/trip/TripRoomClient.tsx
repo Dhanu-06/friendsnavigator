@@ -1,31 +1,38 @@
-
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import dynamic from 'next/dynamic';
-import { useUser } from '@/firebase/auth/use-user';
-import { Card, CardContent } from '@/components/ui/card';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Users, MessageSquare, IndianRupee, Map, Copy } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { useToast } from '@/components/ui/use-toast';
 
 import useReverseGeocode from '@/hooks/useReverseGeocode';
-import useLiveLocation from '@/hooks/useLiveLocation';
-import useTripRealtime from '@/hooks/useTripRealtime';
+import { Card } from '../ui/card';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
+import { IndianRupee, MessageSquare, Users } from 'lucide-react';
+import { TripCodeBadge } from './TripCodeBadge';
+import { useToast } from '../ui/use-toast';
+import ComputeToggle from './ComputeToggle';
 import { ParticipantsList } from './ParticipantsList';
 import { ChatBox } from './ChatBox';
 import { ExpenseCalculator } from './ExpenseCalculator';
-import ComputeToggle from './ComputeToggle';
-import RideButton from './RideButton';
-import { TripCodeBadge } from './TripCodeBadge';
+import useTripRealtime from '@/hooks/useTripRealtime';
+import useLiveLocation from '@/hooks/useLiveLocation';
+import { useUser } from '@/firebase/auth/use-user';
+import { RideButton } from './RideButton';
+import type { LatLng } from '@/utils/rideLinks';
 
+// dynamic import for SSR-safety: TomTomMapController uses window and TomTom SDK
 const TomTomMapController = dynamic(() => import('./TomTomMapController'), { ssr: false });
 
+type Participant = {
+  id: string;
+  name?: string;
+  lat: number;
+  lng: number;
+};
+
 export default function TripRoomClient({ tripId }: { tripId: string }) {
-  const { user: authUser, loading: authLoading } = useUser();
   const { toast } = useToast();
-  
+  const { user: authUser, loading: authLoading } = useUser();
+
   const currentUser = useMemo(() => {
     if (!authUser) return null;
     return {
@@ -35,20 +42,29 @@ export default function TripRoomClient({ tripId }: { tripId: string }) {
     };
   }, [authUser]);
 
-  const {
-    participants,
-    messages,
-    expenses,
-    status,
-    joinOrUpdateParticipant,
-    sendMessage,
-    addExpense,
-  } = useTripRealtime(tripId, currentUser);
+  const { participants, messages, expenses, status, joinOrUpdateParticipant, sendMessage, addExpense } = useTripRealtime(tripId, currentUser);
 
-  const { lastPosition } = useLiveLocation(tripId, currentUser, { enableWatch: true });
-  
+  useLiveLocation(tripId, currentUser, { enableWatch: true });
+
+  const participantsById = useMemo(() => {
+    const m: Record<string, Participant> = {};
+    (participants || []).forEach((p) => {
+      if (!p || !p.id || p.lat == null || p.lng == null) return;
+      m[p.id] = {id: p.id, name: p.name, lat: p.lat, lng: p.lng};
+    });
+    return m;
+  }, [participants]);
+
+
+  // ETAs per participant from TomTom matrix polling
   const [participantETAs, setParticipantETAs] = useState<Record<string, { etaSeconds: number; distanceMeters: number }>>({});
+
+  // Follow a participant when user clicks Follow
   const [followId, setFollowId] = useState<string | null>(null);
+
+  // origin/destination deduced from Firestore doc (if present) or fallbacks
+  const [originState, setOriginState] = useState<{ lat: number; lng: number } | null>(null);
+  const [destinationState, setDestinationState] = useState<{ lat: number; lng: number } | null>(null);
 
   const [computeRoutesEnabled, setComputeRoutesEnabled] = useState<boolean>(() => {
     try {
@@ -60,37 +76,29 @@ export default function TripRoomClient({ tripId }: { tripId: string }) {
     }
   });
 
-  const participantsById = useMemo(() => {
-    const m: Record<string, any> = {};
-    participants.forEach((p) => {
-      m[p.id] = p;
-    });
-    return m;
-  }, [participants]);
 
-  // Update participant with live location
-  React.useEffect(() => {
-    if (lastPosition && currentUser) {
-      joinOrUpdateParticipant({
-        id: currentUser.id,
-        name: currentUser.name,
-        avatarUrl: currentUser.avatarUrl,
-        lat: lastPosition.lat,
-        lng: lastPosition.lng,
-        coords: lastPosition,
-        updatedAt: Date.now(),
-      });
+  // If no origin/destination from server, use first two participants as fallback
+  useEffect(() => {
+    if (!originState && participants[0]) {
+      setOriginState({ lat: participants[0].lat!, lng: participants[0].lng! });
     }
-  }, [lastPosition, currentUser?.id]);
+    if (!destinationState && participants[1]) {
+      setDestinationState({ lat: participants[1].lat!, lng: participants[1].lng! });
+    }
+  }, [participants, originState, destinationState]);
 
+  // Reverse geocode friendly names (hook will cache and call /api/reverse-geocode)
+  const pickupLat = originState?.lat ?? participants[0]?.lat ?? 12.9716;
+  const pickupLng = originState?.lng ?? participants[0]?.lng ?? 77.5946;
+  const destLat = destinationState?.lat ?? participants[1]?.lat ?? 12.9750;
+  const destLng = destinationState?.lng ?? participants[1]?.lng ?? 77.5990;
 
-  // Placeholder for destination, can be fetched from trip data
-  const destination = { lat: 12.9750, lng: 77.5990 };
-  const origin = participants.length > 0 ? { lat: participants[0].lat!, lng: participants[0].lng! } : { lat: 12.9716, lng: 77.5946};
-
-  const { name: pickupName } = useReverseGeocode(origin.lat, origin.lng);
-  const { name: destName } = useReverseGeocode(destination.lat, destination.lng);
+  const { name: pickupName, shortName: pickupShort } = useReverseGeocode(pickupLat, pickupLng);
+  const { name: destName, shortName: destShort } = useReverseGeocode(destLat, destLng);
   
+  const pickup: LatLng = { latitude: pickupLat, longitude: pickupLng };
+  const dropoff: LatLng = { latitude: destLat, longitude: destLng };
+
   const handleCopyCode = () => {
     navigator.clipboard.writeText(tripId);
     toast({
@@ -99,7 +107,8 @@ export default function TripRoomClient({ tripId }: { tripId: string }) {
     });
   }
 
-  const handleParticipantETA = React.useCallback((id: string, data: { etaSeconds: number | null; distanceMeters: number | null }) => {
+  // called by TomTomMapController when ETA polling returns
+  const handleParticipantETA = useCallback((id: string, data: { etaSeconds: number | null; distanceMeters: number | null }) => {
     setParticipantETAs((prev) => {
       const copy = { ...prev };
       if (data.etaSeconds == null || data.distanceMeters == null) {
@@ -120,7 +129,6 @@ export default function TripRoomClient({ tripId }: { tripId: string }) {
     }));
   }, [participants, participantETAs]);
 
-
   if (authLoading) {
     return <div className="flex h-screen w-full items-center justify-center">Loading user...</div>;
   }
@@ -138,10 +146,10 @@ export default function TripRoomClient({ tripId }: { tripId: string }) {
             computeRoutes={computeRoutesEnabled}
             onParticipantETA={handleParticipantETA}
             followId={followId}
-            initialCenter={origin}
+            initialCenter={originState ?? { lat: pickupLat, lng: pickupLng }}
             initialZoom={13}
-            origin={origin}
-            destination={destination}
+            origin={originState ?? { lat: pickupLat, lng: pickupLng }}
+            destination={destinationState ?? { lat: destLat, lng: destLng }}
         />
         <div className="absolute top-4 left-4 z-10">
             <Card className="p-2">
@@ -163,11 +171,31 @@ export default function TripRoomClient({ tripId }: { tripId: string }) {
                 <div className="space-y-4">
                     <ComputeToggle value={computeRoutesEnabled} onChange={setComputeRoutesEnabled} />
                     <ParticipantsList participants={augmentedParticipants} />
+                     <div className="space-y-2 pt-4">
+                      <h4 className="font-semibold">Book a ride</h4>
+                       <div className="flex flex-wrap gap-2">
+                          <RideButton provider="uber" pickup={pickup} dropoff={dropoff} pickupName={pickupName ?? pickupShort} dropoffName={destName ?? destShort}>
+                            Book on Uber
+                          </RideButton>
+
+                          <RideButton provider="ola" pickup={pickup} dropoff={dropoff} pickupName={pickupName ?? pickupShort} dropoffName={destName ?? destShort}>
+                            Book on Ola
+                          </RideButton>
+
+                          <RideButton provider="rapido" pickup={pickup} dropoff={dropoff} pickupName={pickupName ?? pickupShort} dropoffName={destName ?? destShort}>
+                            Book on Rapido
+                          </RideButton>
+
+                          <RideButton provider="transit" pickup={pickup} dropoff={dropoff} dropoffName={destName ?? destShort}>
+                            Open Directions
+                          </RideButton>
+                       </div>
+                    </div>
                 </div>
             </TabsContent>
 
             <TabsContent value="chat" className="flex-1 flex flex-col h-full">
-              <ChatBox messages={messages.map(m => ({...m, timestamp: new Date(m.createdAt).toLocaleTimeString()}))} onSendMessage={sendMessage} />
+              <ChatBox messages={messages.map(m => ({...m, timestamp: m.createdAt ? new Date(m.createdAt).toLocaleTimeString() : ''}))} onSendMessage={sendMessage} />
             </TabsContent>
             
             <TabsContent value="expenses" className="flex-1 overflow-y-auto px-4">

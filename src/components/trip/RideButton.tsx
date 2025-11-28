@@ -1,69 +1,141 @@
-import React from 'react';
-import { openRideProvider } from './rideLinks';
-import { logRideClick } from './rideTelemetry';
+'use client';
+import React, { useState } from "react";
+import openAppOrFallback from "../../utils/openAppOrFallback";
+import { buildUberUrl, buildOlaUrl, buildRapidoUrl, buildTransitUrl, type LatLng, type RideLinkResult } from "../../utils/rideLinks";
 
-type Coords = { lat: number; lng: number; name?: string };
+type Provider = "uber" | "ola" | "rapido" | "transit";
 
-export default function RideButton({
-  provider,
-  pickup,
-  drop,
-  className,
-  children,
-}: {
-  provider: 'uber' | 'ola' | 'rapido' | 'transit';
-  pickup?: Coords;
-  drop?: Coords;
+type RideButtonProps = {
+  provider: Provider;
+  pickup: LatLng;
+  dropoff?: LatLng;
+  pickupName?: string;
+  dropoffName?: string;
   className?: string;
   children?: React.ReactNode;
-}) {
-  const label = children || (provider === 'transit' ? 'Transit / Metro' : `Book ${provider.charAt(0).toUpperCase() + provider.slice(1)}`);
+  ariaLabel?: string;
+  /** optional callback (for analytics) */
+  onOpen?: (result: RideLinkResult) => void;
+};
 
-  const handleClick = async () => {
-    try {
-      if (!pickup && provider !== 'transit') {
-        alert('Pickup not set');
-        return;
-      }
-      if ((provider === 'transit' || provider === 'uber' || provider === 'ola' || provider === 'rapido') && (!pickup || !drop)) {
-        if (provider === 'uber' && pickup) {
-        } else {
-          alert('Please set a destination first.');
-          return;
-        }
-      }
+export const RideButton: React.FC<RideButtonProps> = ({
+  provider,
+  pickup,
+  dropoff,
+  pickupName,
+  dropoffName,
+  className,
+  children,
+  ariaLabel,
+  onOpen,
+}) => {
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-      let attemptedAppUrl = '';
-      let attemptedWebUrl = '';
-      try {
-        const rl = await import('./rideLinks');
-        if (provider === 'uber' && rl.buildUberLinks) {
-          const b = rl.buildUberLinks(pickup as any, drop as any);
-          attemptedAppUrl = b.appUrl; attemptedWebUrl = b.webUrl;
-        } else if (provider === 'ola' && rl.buildOlaLinks) {
-          const b = rl.buildOlaLinks(pickup as any, drop as any);
-          attemptedAppUrl = b.appUrl; attemptedWebUrl = b.webUrl;
-        } else if (provider === 'rapido' && rl.buildRapidoLinks) {
-          const b = rl.buildRapidoLinks(pickup as any, drop as any);
-          attemptedAppUrl = b.appUrl; attemptedWebUrl = b.webUrl;
-        } else if (provider === 'transit' && rl.buildTransitLink) {
-          attemptedWebUrl = rl.buildTransitLink(pickup as any, drop as any);
-        }
-      } catch (e) {}
-
-      try {
-        logRideClick({ provider, pickup, drop, attemptedAppUrl, attemptedWebUrl });
-      } catch (e) {}
-
-      openRideProvider(provider, pickup, drop);
-    } catch (e) {
-      console.error('RideButton click error', e);
+  const getLinks = (): RideLinkResult => {
+    switch (provider) {
+      case "uber":
+        return buildUberUrl(pickup, dropoff, pickupName, dropoffName);
+      case "ola":
+        return buildOlaUrl(pickup, dropoff, pickupName, dropoffName);
+      case "rapido":
+        return buildRapidoUrl(pickup, dropoff, pickupName, dropoffName);
+      case "transit":
+        // For transit we prefer destination only (dropoff)
+        return buildTransitUrl(dropoff ?? pickup, dropoffName);
+      default:
+        return buildUberUrl(pickup, dropoff, pickupName, dropoffName);
     }
   };
 
+  const handleClick = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    setError(null);
+    setLoading(true);
+
+    const links = getLinks();
+    logRideClick({
+        provider,
+        pickup: {lat: pickup.latitude, lng: pickup.longitude, name: pickupName},
+        drop: {lat: dropoff?.latitude, lng: dropoff?.longitude, name: dropoffName},
+        attemptedAppUrl: links.appUrl,
+        attemptedWebUrl: links.webUrl
+    })
+
+    try {
+      onOpen?.(links);
+      await openAppOrFallback({
+        appUrl: links.appUrl,
+        androidIntentUrl: links.androidIntentUrl,
+        fallbackUrl: links.webUrl,
+        timeoutMs: 800, // as requested
+      });
+    } catch (err: any) {
+      setError("Could not open the ride app. Opening web fallback.");
+      // Open fallback explicitly
+      window.open(links.webUrl, "_blank");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Friendly label if children isn't provided
+  const defaultLabel = (() => {
+    switch (provider) {
+      case "uber":
+        return "Open in Uber";
+      case "ola":
+        return "Open in Ola";
+      case "rapido":
+        return "Open in Rapido";
+      case "transit":
+        return "Open in Maps";
+      default:
+        return "Open Ride App";
+    }
+  })();
+
   return (
-    <button onClick={handleClick} className={className} style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid #e6e6e6', background: '#fff', cursor: 'pointer', fontWeight: 600 }}>
-      {label}
-    </button>
+    <div className={className}>
+      <button
+        type="button"
+        onClick={handleClick}
+        disabled={loading}
+        aria-label={ariaLabel ?? defaultLabel}
+        className={`px-3 py-2 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-offset-2 ${
+          loading ? "opacity-70 cursor-wait" : "hover:brightness-95"
+        }`}
+      >
+        {loading ? "Opening…" : children ?? defaultLabel}
+      </button>
+
+      {error && (
+        <div role="status" aria-live="polite" className="text-sm mt-1 text-red-600">
+          {error}
+        </div>
+      )}
+    </div>
   );
+};
+
+async function logRideClick(payload: {
+  provider: string;
+  pickup?: { lat?: number; lng?: number; name?: string };
+  drop?: { lat?: number; lng?: number; name?: string };
+  attemptedAppUrl?: string;
+  attemptedWebUrl?: string;
+}) {
+  try {
+    fetch('/api/ride-click', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ...payload,
+        timestamp: Date.now(),
+      }),
+    }).catch(() => {});
+  } catch (e) {}
 }
+
+
+export default RideButton;
