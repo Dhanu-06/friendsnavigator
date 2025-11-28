@@ -21,11 +21,5 @@ export default function TripPage() {
 
   // The TripRoomClient now handles its own data fetching and real-time updates.
   // We just need to render it and pass the tripId.
-  return (
-    <div style={{ width: '100%', height: '100vh' }}>
-      <TripRoomClient tripId={tripId} />
-    </div>
-  );
+  return <TripRoomClient tripId={tripId} />;
 }
-
-    

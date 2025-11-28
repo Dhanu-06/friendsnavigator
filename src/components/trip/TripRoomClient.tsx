@@ -1,372 +1,181 @@
+
 'use client';
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import dynamic from 'next/dynamic';
+import { useUser } from '@/firebase/auth/use-user';
+import { Card, CardContent } from '@/components/ui/card';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Users, MessageSquare, IndianRupee, Map, Copy } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { useToast } from '@/components/ui/use-toast';
 
 import useReverseGeocode from '@/hooks/useReverseGeocode';
-import RideButton from './RideButton';
+import useLiveLocation from '@/hooks/useLiveLocation';
+import useTripRealtime from '@/hooks/useTripRealtime';
+import { ParticipantsList } from './ParticipantsList';
+import { ChatBox } from './ChatBox';
+import { ExpenseCalculator } from './ExpenseCalculator';
 import ComputeToggle from './ComputeToggle';
+import RideButton from './RideButton';
+import { TripCodeBadge } from './TripCodeBadge';
 
-// dynamic import for SSR-safety: TomTomMapController uses window and TomTom SDK
 const TomTomMapController = dynamic(() => import('./TomTomMapController'), { ssr: false });
 
-type Participant = {
-  id: string;
-  name?: string;
-  lat: number;
-  lng: number;
-};
+export default function TripRoomClient({ tripId }: { tripId: string }) {
+  const { user: authUser, loading: authLoading } = useUser();
+  const { toast } = useToast();
+  
+  const currentUser = useMemo(() => {
+    if (!authUser) return null;
+    return {
+      id: authUser.uid,
+      name: authUser.displayName || authUser.email || 'Anonymous',
+      avatarUrl: authUser.photoURL || `https://i.pravatar.cc/150?u=${authUser.uid}`,
+    };
+  }, [authUser]);
 
-const COMPUTE_ROUTES_KEY = 'trip_compute_routes_enabled_v1';
+  const {
+    participants,
+    messages,
+    expenses,
+    status,
+    joinOrUpdateParticipant,
+    sendMessage,
+    addExpense,
+  } = useTripRealtime(tripId, currentUser);
 
-export default function TripRoomClient({
-  tripId,
-  initialParticipants,
-  className,
-}: {
-  tripId?: string;
-  initialParticipants?: Participant[];
-  className?: string;
-}) {
-  // participants state (array) and map keyed-by-id
-  const [participantsArray, setParticipantsArray] = useState<Participant[]>(initialParticipants || []);
-  const participantsById = useMemo(() => {
-    const m: Record<string, Participant> = {};
-    (participantsArray || []).forEach((p) => {
-      if (!p || !p.id) return;
-      m[p.id] = p;
-    });
-    return m;
-  }, [participantsArray]);
-
-  // ETAs per participant from TomTom matrix polling
+  const { lastPosition } = useLiveLocation(tripId, currentUser, { enableWatch: true });
+  
   const [participantETAs, setParticipantETAs] = useState<Record<string, { etaSeconds: number; distanceMeters: number }>>({});
-
-  // Follow a participant when user clicks Follow
   const [followId, setFollowId] = useState<string | null>(null);
 
-  // origin/destination deduced from Firestore doc (if present) or fallbacks
-  const [originState, setOriginState] = useState<{ lat: number; lng: number } | null>(null);
-  const [destinationState, setDestinationState] = useState<{ lat: number; lng: number } | null>(null);
-
-  // Toggle: compute routes & ETA polling (persisted)
   const [computeRoutesEnabled, setComputeRoutesEnabled] = useState<boolean>(() => {
     try {
-      const raw = typeof window !== 'undefined' ? window.localStorage.getItem(COMPUTE_ROUTES_KEY) : null;
-      if (raw === null) return true; // default ON
-      return raw === '1';
+      if (typeof window === 'undefined') return true;
+      const raw = window.localStorage.getItem('trip_compute_routes_enabled_v1');
+      return raw === null ? true : raw === '1';
     } catch {
       return true;
     }
   });
 
-  // If no origin/destination from server, use first two participants as fallback
-  useEffect(() => {
-    if (!originState && participantsArray[0]) {
-      setOriginState({ lat: participantsArray[0].lat, lng: participantsArray[0].lng });
+  const participantsById = useMemo(() => {
+    const m: Record<string, any> = {};
+    participants.forEach((p) => {
+      m[p.id] = p;
+    });
+    return m;
+  }, [participants]);
+
+  // Update participant with live location
+  React.useEffect(() => {
+    if (lastPosition && currentUser) {
+      joinOrUpdateParticipant({
+        id: currentUser.id,
+        name: currentUser.name,
+        avatarUrl: currentUser.avatarUrl,
+        lat: lastPosition.lat,
+        lng: lastPosition.lng,
+        coords: lastPosition,
+        updatedAt: Date.now(),
+      });
     }
-    if (!destinationState && participantsArray[1]) {
-      setDestinationState({ lat: participantsArray[1].lat, lng: participantsArray[1].lng });
-    }
-  }, [participantsArray, originState, destinationState]);
+  }, [lastPosition, currentUser?.id]);
 
-  // Reverse geocode friendly names (hook will cache and call /api/reverse-geocode)
-  const pickupLat = originState?.lat ?? participantsArray[0]?.lat ?? 12.9716;
-  const pickupLng = originState?.lng ?? participantsArray[0]?.lng ?? 77.5946;
-  const destLat = destinationState?.lat ?? participantsArray[1]?.lat ?? 12.9750;
-  const destLng = destinationState?.lng ?? participantsArray[1]?.lng ?? 77.5990;
 
-  const { name: pickupName, shortName: pickupShort } = useReverseGeocode(pickupLat, pickupLng);
-  const { name: destName, shortName: destShort } = useReverseGeocode(destLat, destLng);
+  // Placeholder for destination, can be fetched from trip data
+  const destination = { lat: 12.9750, lng: 77.5990 };
+  const origin = participants.length > 0 ? { lat: participants[0].lat!, lng: participants[0].lng! } : { lat: 12.9716, lng: 77.5946};
 
-  // Format ETA helper
-  const formatETA = (s?: number | null) => {
-    if (s == null) return '--';
-    const mins = Math.round(s / 60);
-    if (mins < 60) return `${mins} min`;
-    const hours = Math.floor(mins / 60);
-    const rem = mins % 60;
-    return `${hours}h ${rem}m`;
-  };
+  const { name: pickupName } = useReverseGeocode(origin.lat, origin.lng);
+  const { name: destName } = useReverseGeocode(destination.lat, destination.lng);
+  
+  const handleCopyCode = () => {
+    navigator.clipboard.writeText(tripId);
+    toast({
+        title: "Copied!",
+        description: "Trip code copied to clipboard."
+    });
+  }
 
-  // called by TomTomMapController when ETA polling returns
-  const handleParticipantETA = useCallback((id: string, data: { etaSeconds: number | null; distanceMeters: number | null }) => {
+  const handleParticipantETA = React.useCallback((id: string, data: { etaSeconds: number | null; distanceMeters: number | null }) => {
     setParticipantETAs((prev) => {
       const copy = { ...prev };
-      if (data.etaSeconds == null && data.distanceMeters == null) {
+      if (data.etaSeconds == null || data.distanceMeters == null) {
         delete copy[id];
       } else {
-        copy[id] = { etaSeconds: data.etaSeconds ?? 0, distanceMeters: data.distanceMeters ?? 0 };
+        copy[id] = { etaSeconds: data.etaSeconds, distanceMeters: data.distanceMeters };
       }
       return copy;
     });
   }, []);
 
-  /* -----------------------------------------
-     Firestore subscription: robust/dynamic init
-     - tries to import an existing client module (src/firebase/clientApp or src/lib/firebase)
-     - falls back to initializing firebase using NEXT_PUBLIC_* env vars (client-side only)
-     - subscribes to doc('trips', tripId) and expects { participants: [...] , pickup?, destination? }
-     ----------------------------------------- */
-  useEffect(() => {
-    if (!tripId) return;
+  const augmentedParticipants = useMemo(() => {
+    return participants.map(p => ({
+        ...p,
+        eta: participantETAs[p.id] ? `${Math.round(participantETAs[p.id].etaSeconds / 60)} min` : '...',
+        status: 'On the way', // Placeholder status
+        mode: p.mode || 'Car' // Placeholder mode
+    }));
+  }, [participants, participantETAs]);
 
-    let unsub: (() => void) | null = null;
-    let mounted = true;
 
-    (async () => {
-      try {
-        let firestore: any = null;
-        try {
-          const mod =
-            (await import('@/firebase/client').catch(() => null)) ||
-            (await import('@/lib/firebaseClient').catch(() => null));
-          if (mod) {
-            if (mod.firestore) {
-                firestore = mod.firestore;
-            } else if (mod.db) {
-                firestore = mod.db;
-            } else if (mod.default && mod.default.firestore) {
-                firestore = mod.default.firestore;
-            } else if (mod.getFirestore && mod.app) {
-                firestore = mod.getFirestore(mod.app);
-            } else if (mod.getFirebaseInstances) {
-              const instances = mod.getFirebaseInstances();
-              if (instances && instances.firestore) firestore = instances.firestore;
-            }
-          }
-        } catch (e) {
-          // ignore and fallback to client-side init below
-        }
-
-        if (!firestore) {
-          try {
-            const firebaseAppModule = await import('firebase/app').catch(() => null);
-            const firebaseFirestoreModule = await import('firebase/firestore').catch(() => null);
-            if (!firebaseAppModule || !firebaseFirestoreModule) {
-              console.warn('Firebase client SDK not available; cannot subscribe to Firestore automatically.');
-              return;
-            }
-            const { initializeApp, getApps } = await import('firebase/app');
-            const { getFirestore } = await import('firebase/firestore');
-
-            const conf = {
-              apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
-              authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
-              projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
-              appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
-            };
-
-            if (!getApps().length) {
-              initializeApp(conf);
-            }
-            firestore = getFirestore();
-          } catch (e) {
-            console.warn('Failed to initialize Firebase client dynamically:', (e as any)?.message || e);
-            return;
-          }
-        }
-
-        if (!firestore) {
-          console.warn('Firestore instance unavailable; skipping trip subscription.');
-          return;
-        }
-
-        const { doc, onSnapshot } = await import('firebase/firestore').catch(() => ({ doc: null, onSnapshot: null }));
-        if (!doc || !onSnapshot) {
-          console.warn('firebase/firestore did not export expected functions; subscription unavailable.');
-          return;
-        }
-
-        const tripDocRef = doc(firestore, 'trips', tripId);
-        const snapUnsub = onSnapshot(
-          tripDocRef,
-          (snap: any) => {
-            if (!mounted) return;
-            const data = snap.exists ? snap.data() : null;
-            if (!data) {
-              return;
-            }
-
-            const list = Array.isArray(data.participants) ? data.participants : [];
-            const normalized: Participant[] = list
-              .map((it: any) => {
-                if (!it) return null;
-                 if (it.id && (it.lat != null || it.lng != null || it.coords)) {
-                    const lat = it.lat ?? it.coords?.lat;
-                    const lng = it.lng ?? it.coords?.lng;
-                    if (lat != null && lng != null) {
-                         return { id: String(it.id), name: it.name ?? undefined, lat: Number(lat), lng: Number(lng) } as Participant;
-                    }
-                }
-                return null;
-              })
-              .filter(Boolean) as Participant[];
-
-            if (normalized.length === 0 && typeof data.participants === 'object' && !Array.isArray(data.participants)) {
-              const arr: Participant[] = [];
-              Object.entries(data.participants).forEach(([k, v]) => {
-                const maybe = v as any;
-                if (!maybe) return;
-                const lat = maybe.lat ?? maybe.latitude ?? maybe.coords?.lat ?? maybe.location?.lat;
-                const lng = maybe.lng ?? maybe.longitude ?? maybe.coords?.lng ?? maybe.location?.lng;
-                if ((lat != null || lng != null) || maybe.id) {
-                  arr.push({
-                    id: maybe.id ? String(maybe.id) : String(k),
-                    name: maybe.name ?? maybe.displayName ?? undefined,
-                    lat: Number(lat ?? 0),
-                    lng: Number(lng ?? 0),
-                  });
-                }
-              });
-              setParticipantsArray(arr);
-            } else {
-              setParticipantsArray(normalized);
-            }
-
-            if (data.pickup && (data.pickup.lat != null || data.pickup.lng != null)) {
-              setOriginState({ lat: Number(data.pickup.lat), lng: Number(data.pickup.lng) });
-            }
-            if (data.destination && (data.destination.lat != null || data.destination.lng != null)) {
-              setDestinationState({ lat: Number(data.destination.lat), lng: Number(data.destination.lng) });
-            }
-          },
-          (err: any) => {
-            console.warn('Trip subscription error', err);
-          }
-        );
-
-        unsub = () => {
-          try {
-            snapUnsub();
-          } catch (e) {}
-        };
-      } catch (e) {
-        console.warn('TripRoomClient: firestore subscription failed', (e as any)?.message || e);
-      }
-    })();
-
-    return () => {
-      mounted = false;
-      if (unsub) unsub();
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tripId]);
-
-  /* -----------------------------------------
-     Render UI: TomTomMapController + sidebar
-     - includes the new toggle to enable/disable computeRoutes ( ETA polling & route drawing )
-     ----------------------------------------- */
+  if (authLoading) {
+    return <div className="flex h-screen w-full items-center justify-center">Loading user...</div>;
+  }
+  
+  if (!currentUser) {
+    // This should ideally redirect to login
+    return <div className="flex h-screen w-full items-center justify-center">Please log in to view this trip.</div>;
+  }
+  
   return (
-    <div className={className || 'w-full h-full flex'} style={{ minHeight: 360 }}>
-      <div style={{ flex: 1, minHeight: 360 }}>
+    <div className="grid grid-cols-1 lg:grid-cols-3 xl:grid-cols-4 h-screen bg-muted/20">
+      <div className="lg:col-span-2 xl:col-span-3 h-full relative">
         <TomTomMapController
-          participants={participantsById}
-          computeRoutes={computeRoutesEnabled}
-          onParticipantETA={handleParticipantETA}
-          followId={followId}
-          initialCenter={{ lat: pickupLat, lng: pickupLng }}
-          initialZoom={13}
-          origin={originState ?? { lat: pickupLat, lng: pickupLng }}
-          destination={destinationState ?? { lat: destLat, lng: destLng }}
+            participants={participantsById}
+            computeRoutes={computeRoutesEnabled}
+            onParticipantETA={handleParticipantETA}
+            followId={followId}
+            initialCenter={origin}
+            initialZoom={13}
+            origin={origin}
+            destination={destination}
         />
+        <div className="absolute top-4 left-4 z-10">
+            <Card className="p-2">
+                <TripCodeBadge code={tripId} onCopy={handleCopyCode} />
+            </Card>
+        </div>
       </div>
-
-      <aside style={{ width: 360, borderLeft: '1px solid #eee', padding: 12, background: '#fff', overflowY: 'auto' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-          <h3 style={{ margin: 0 }}>Trip</h3>
-          <div style={{ fontSize: 12, color: '#666' }}>{participantsArray.length} participants</div>
-        </div>
-
-        {/* Toggle UI */}
-        <div style={{ marginBottom: 10, padding: '8px 0' }}>
-          <ComputeToggle value={computeRoutesEnabled} onChange={setComputeRoutesEnabled} />
-        </div>
-
-
-        <section style={{ marginBottom: 12 }}>
-          <div style={{ fontSize: 13, color: '#333', fontWeight: 600 }}>Pickup</div>
-          <div style={{ fontSize: 13, color: '#444' }}>
-            {pickupName ?? pickupShort ?? `${(originState ?? { lat: pickupLat }).lat.toFixed(5)}, ${(originState ?? { lng: pickupLng }).lng.toFixed(5)}`}
-          </div>
-        </section>
-
-        <section style={{ marginBottom: 12 }}>
-          <div style={{ fontSize: 13, color: '#333', fontWeight: 600 }}>Destination</div>
-          <div style={{ fontSize: 13, color: '#444' }}>
-            {destName ?? destShort ?? `${(destinationState ?? { lat: destLat }).lat.toFixed(5)}, ${(destinationState ?? { lng: destLng }).lng.toFixed(5)}`}
-          </div>
-        </section>
-
-        <div style={{ marginTop: 8, marginBottom: 12 }}>
-          <div style={{ marginBottom: 8, fontWeight: 700 }}>Participants</div>
-          {participantsArray.length === 0 ? (
-            <div style={{ color: '#777' }}>No participants yet</div>
-          ) : (
-            participantsArray.map((p) => {
-              const eta = participantETAs[p.id];
-              return (
-                <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: 8, marginBottom: 8, borderRadius: 8, border: '1px solid #f3f3f3' }}>
-                  <div style={{ width: 44, height: 44, borderRadius: 8, background: '#f8fafc', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, color: '#1E90FF' }}>
-                    {(p.name || '??').slice(0, 2).toUpperCase()}
-                  </div>
-
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontWeight: 600 }}>{p.name || 'Unnamed'}</div>
-                    <div style={{ fontSize: 12, color: '#666' }}>{eta ? `${Math.round(eta.distanceMeters)} m • ${formatETA(eta.etaSeconds)}` : 'ETA —'}</div>
-                  </div>
-
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                    <button
-                      onClick={() => {
-                        setFollowId(p.id);
-                        setTimeout(() => setFollowId(null), 3000);
-                      }}
-                      style={{ fontSize: 12, padding: '6px 8px', borderRadius: 6, border: '1px solid #e6e6e6', background: '#fff', cursor: 'pointer' }}
-                    >
-                      Follow
-                    </button>
-                  </div>
+      
+      <div className="h-full flex flex-col">
+        <Card className="m-2 mb-0 flex-1 rounded-b-none flex flex-col">
+          <Tabs defaultValue="participants" className="flex-1 flex flex-col">
+            <TabsList className="grid w-full grid-cols-3 m-4">
+              <TabsTrigger value="participants"><Users className="mr-2"/> Status</TabsTrigger>
+              <TabsTrigger value="chat"><MessageSquare className="mr-2"/> Chat</TabsTrigger>
+              <TabsTrigger value="expenses"><IndianRupee className="mr-2"/> Expenses</TabsTrigger>
+            </TabsList>
+            
+            <TabsContent value="participants" className="flex-1 overflow-y-auto px-4">
+                <div className="space-y-4">
+                    <ComputeToggle value={computeRoutesEnabled} onChange={setComputeRoutesEnabled} />
+                    <ParticipantsList participants={augmentedParticipants} />
                 </div>
-              );
-            })
-          )}
-        </div>
+            </TabsContent>
 
-        <div style={{ marginTop: 8 }}>
-          <div style={{ fontWeight: 700, marginBottom: 8 }}>Book a ride</div>
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            <RideButton
-              provider="uber"
-              pickup={{ lat: (originState ?? { lat: pickupLat }).lat, lng: (originState ?? { lng: pickupLng }).lng, name: pickupName ?? pickupShort }}
-              drop={{ lat: (destinationState ?? { lat: destLat }).lat, lng: (destinationState ?? { lng: destLng }).lng, name: destName ?? destShort }}
-            >
-              Uber
-            </RideButton>
-            <RideButton
-              provider="ola"
-              pickup={{ lat: (originState ?? { lat: pickupLat }).lat, lng: (originState ?? { lng: pickupLng }).lng, name: pickupName ?? pickupShort }}
-              drop={{ lat: (destinationState ?? { lat: destLat }).lat, lng: (destinationState ?? { lng: destLng }).lng, name: destName ?? destShort }}
-            >
-              Ola
-            </RideButton>
-            <RideButton
-              provider="rapido"
-              pickup={{ lat: (originState ?? { lat: pickupLat }).lat, lng: (originState ?? { lng: pickupLng }).lng, name: pickupName ?? pickupShort }}
-              drop={{ lat: (destinationState ?? { lat: destLat }).lat, lng: (destinationState ?? { lng: destLng }).lng, name: destName ?? destShort }}
-            >
-              Rapido
-            </RideButton>
-            <RideButton
-              provider="transit"
-              pickup={{ lat: (originState ?? { lat: pickupLat }).lat, lng: (originState ?? { lng: pickupLng }).lng }}
-              drop={{ lat: (destinationState ?? { lat: destLat }).lat, lng: (destinationState ?? { lng: destLng }).lng }}
-            >
-              Transit
-            </RideButton>
-          </div>
-        </div>
-      </aside>
+            <TabsContent value="chat" className="flex-1 flex flex-col h-full">
+              <ChatBox messages={messages.map(m => ({...m, timestamp: new Date(m.createdAt).toLocaleTimeString()}))} onSendMessage={sendMessage} />
+            </TabsContent>
+            
+            <TabsContent value="expenses" className="flex-1 overflow-y-auto px-4">
+              <ExpenseCalculator participants={participants} expenses={expenses} onAddExpense={addExpense} />
+            </TabsContent>
+          </Tabs>
+        </Card>
+      </div>
     </div>
   );
 }

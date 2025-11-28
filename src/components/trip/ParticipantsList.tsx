@@ -1,3 +1,4 @@
+
 'use client';
 
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -26,12 +27,8 @@ const statusColors = {
 
 export function ParticipantsList({ participants }: { participants: Participant[] }) {
   return (
-    <>
-      <CardHeader>
-        <CardTitle>Participants Status</CardTitle>
-      </CardHeader>
       <CardContent>
-        <ScrollArea className="h-48">
+        <ScrollArea className="h-[calc(100vh-250px)]">
           <div className="space-y-4">
             {participants.map((p) => (
               <div key={p.id} className="flex items-center gap-4">
@@ -57,6 +54,5 @@ export function ParticipantsList({ participants }: { participants: Participant[]
           </div>
         </ScrollArea>
       </CardContent>
-    </>
   );
 }

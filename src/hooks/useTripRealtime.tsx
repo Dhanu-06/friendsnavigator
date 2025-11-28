@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
@@ -50,7 +51,7 @@ const useEmulator = process.env.NEXT_PUBLIC_USE_FIREBASE_EMULATOR === 'true';
 
 export default function useTripRealtime(
   tripId: string,
-  currentUser: { id: string; name: string; avatarUrl: string }
+  currentUser: { id: string; name: string; avatarUrl: string } | null
 ) {
   const [participants, setParticipants] = useState<Participant[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -63,7 +64,7 @@ export default function useTripRealtime(
   const firestoreRef = useRef<Firestore | null>(null);
 
   useEffect(() => {
-    if (!tripId) {
+    if (!tripId || !currentUser) {
       setParticipants([]);
       setMessages([]);
       setExpenses([]);
@@ -86,6 +87,14 @@ export default function useTripRealtime(
     } catch (e) {
       console.warn('Initial local read failed', e);
     }
+    
+    // Add current user to participants list on load
+    joinOrUpdateParticipant({
+        id: currentUser.id,
+        name: currentUser.name,
+        avatarUrl: currentUser.avatarUrl,
+    });
+
 
     if (!useEmulator) {
       console.warn('Realtime hook: Emulator disabled. Operating in offline mode.');
@@ -159,9 +168,9 @@ export default function useTripRealtime(
     return () => {
       unsubs.current.forEach((u) => u());
     };
-  }, [tripId]);
+  }, [tripId, currentUser?.id]);
 
-  const joinOrUpdateParticipant = async (p: Participant) => {
+  const joinOrUpdateParticipant = async (p: Partial<Participant> & { id: string }) => {
     if (!tripId) return;
     const trip = getTripLocal(tripId) || {
       id: tripId,
@@ -170,8 +179,11 @@ export default function useTripRealtime(
       expenses: [],
     };
     const existingIdx = trip.participants.findIndex((par: Participant) => par.id === p.id);
-    if (existingIdx !== -1) trip.participants[existingIdx] = { ...trip.participants[existingIdx], ...p };
-    else trip.participants.push(p);
+    if (existingIdx !== -1) {
+        trip.participants[existingIdx] = { ...trip.participants[existingIdx], ...p };
+    } else {
+        trip.participants.push(p);
+    }
     saveTripLocal(tripId, trip);
     setParticipants([...trip.participants]);
 
