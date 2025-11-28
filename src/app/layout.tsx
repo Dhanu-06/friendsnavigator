@@ -41,9 +41,7 @@ export default function RootLayout({
           fontMono.variable
         )}
       >
-        <FirebaseProvider>
-          {children}
-        </FirebaseProvider>
+        <FirebaseProvider>{children}</FirebaseProvider>
         <Toaster />
       </body>
     </html>

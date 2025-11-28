@@ -40,6 +40,8 @@ export default function LoginPage() {
       let message = 'An unknown error occurred.';
       if (err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password' || err.code === 'auth/invalid-credential') {
           message = 'Invalid email or password. Please try again.';
+      } else if (err.code === 'auth/network-request-failed') {
+          message = 'Network error. Please check your internet connection or try again later.'
       }
       setError(message);
     }

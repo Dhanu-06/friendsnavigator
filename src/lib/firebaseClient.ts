@@ -18,9 +18,9 @@ const firebaseConfig = {
 };
 
 // Log only presence (do not leak secrets)
-if (!firebaseConfig.apiKey) {
+if (!firebaseConfig.apiKey && typeof window !== "undefined") {
   // eslint-disable-next-line no-console
-  console.warn("⚠️ NEXT_PUBLIC_FIREBASE_API_KEY is missing. Add real keys to .env or .env.local");
+  console.warn("⚠️ NEXT_PUBLIC_FIREBASE_API_KEY is missing. Add your Firebase web config to .env.local");
 }
 
 let app: FirebaseApp;
@@ -41,32 +41,26 @@ try {
     });
 }
 
-// Emulator will be used only when NEXT_PUBLIC_USE_FIREBASE_EMULATOR === "true".
+// Only connect to emulator when explicitly requested.
 if (process.env.NEXT_PUBLIC_USE_FIREBASE_EMULATOR === "true") {
-  console.info("[firebaseClient] Using Firebase Emulators");
-    
-    const authHost = process.env.NEXT_PUBLIC_FIREBASE_AUTH_EMULATOR_HOST;
-    if (authHost) {
-        const url = authHost.startsWith("http") ? authHost : `http://${authHost}`;
-        try {
-            console.info("[firebaseClient] connecting to auth emulator at", url);
-            connectAuthEmulator(auth, url);
-        } catch (err) {
-            console.error("[firebaseClient] connectAuthEmulator failed:", err);
-        }
+    const authHost = process.env.NEXT_PUBLIC_FIREBASE_AUTH_EMULATOR_HOST || 'localhost:9099';
+    const firestoreHost = process.env.NEXT_PUBLIC_FIRESTORE_EMULATOR_HOST || 'localhost';
+    const firestorePort = parseInt(process.env.NEXT_PUBLIC_FIRESTORE_EMULATOR_PORT || '8080', 10);
+
+    const authUrl = authHost.startsWith("http") ? authHost : `http://${authHost}`;
+    try {
+        console.info("[firebaseClient] connecting to auth emulator at", authUrl);
+        connectAuthEmulator(auth, authUrl);
+    } catch (err) {
+        console.error("[firebaseClient] connectAuthEmulator failed:", err);
     }
 
-    const firestoreHost = process.env.NEXT_PUBLIC_FIRESTORE_EMULATOR_HOST;
-    const firestorePort = process.env.NEXT_PUBLIC_FIRESTORE_EMULATOR_PORT;
-    if (firestoreHost && firestorePort) {
-        try {
-            console.info(`[firebaseClient] connecting to firestore emulator at ${firestoreHost}:${firestorePort}`);
-            connectFirestoreEmulator(firestore, firestoreHost, parseInt(firestorePort));
-        } catch (err) {
-             console.error("[firebaseClient] connectFirestoreEmulator failed:", err);
-        }
+    try {
+        console.info(`[firebaseClient] connecting to firestore emulator at ${firestoreHost}:${firestorePort}`);
+        connectFirestoreEmulator(firestore, firestoreHost, firestorePort);
+    } catch (err) {
+         console.error("[firebaseClient] connectFirestoreEmulator failed:", err);
     }
-
 } else {
   // eslint-disable-next-line no-console
   console.info("[firebaseClient] using real Firebase endpoints");
