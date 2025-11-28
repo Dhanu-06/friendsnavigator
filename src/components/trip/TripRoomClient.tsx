@@ -11,6 +11,7 @@ import { TripCodeBadge } from './TripCodeBadge';
 import { useToast } from '../ui/use-toast';
 import ComputeToggle from './ComputeToggle';
 import { ParticipantsList } from './ParticipantsList';
+import type { Participant as ParticipantsListPerson } from './ParticipantsList';
 import { ChatBox } from './ChatBox';
 import { ExpenseCalculator } from './ExpenseCalculator';
 import useTripRealtime from '@/hooks/useTripRealtime';
@@ -115,12 +116,15 @@ export default function TripRoomClient({ tripId }: { tripId: string }) {
     });
   }, []);
 
-  const augmentedParticipants = useMemo(() => {
+  const augmentedParticipants: ParticipantsListPerson[] = useMemo(() => {
     return participants.map(p => ({
-        ...p,
+        id: p.id,
+        name: p.name || 'Anonymous',
+        avatarUrl: p.avatarUrl || `https://i.pravatar.cc/150?u=${p.id}`,
+        mode: p.mode || 'Car',
         eta: participantETAs[p.id] ? `${Math.round(participantETAs[p.id].etaSeconds / 60)} min` : '...',
-        status: 'On the way', // Placeholder status
-        mode: p.mode || 'Car' // Placeholder mode
+        status: 'On the way' as const,
+        coords: p.coords ? { lat: p.coords.lat, lon: p.coords.lng } : undefined,
     }));
   }, [participants, participantETAs]);
 
@@ -216,7 +220,11 @@ export default function TripRoomClient({ tripId }: { tripId: string }) {
             </TabsContent>
             
             <TabsContent value="expenses" className="flex-1 overflow-y-auto px-4">
-              <ExpenseCalculator participants={participants} expenses={expenses} onAddExpense={addExpense} />
+              <ExpenseCalculator
+                participants={participants.map(p => ({ id: p.id, name: p.name || 'Anonymous' }))}
+                expenses={expenses}
+                onAddExpenseAction={addExpense}
+              />
             </TabsContent>
           </Tabs>
         </Card>

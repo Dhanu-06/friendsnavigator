@@ -10,7 +10,25 @@ export function useUser() {
 
   useEffect(() => {
     if (!auth) {
-      setLoading(false);
+      try {
+        const raw = typeof window !== 'undefined' ? window.localStorage.getItem('local_user') : null;
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          const localUser: any = {
+            uid: parsed.uid || `local-${Date.now()}`,
+            email: parsed.email || null,
+            displayName: parsed.displayName || parsed.name || 'Local User',
+            photoURL: parsed.photoURL || null,
+          };
+          setUser(localUser as User);
+        } else {
+          setUser(null);
+        }
+      } catch (e) {
+        setUser(null);
+      } finally {
+        setLoading(false);
+      }
       return;
     }
 

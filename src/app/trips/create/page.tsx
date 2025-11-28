@@ -16,6 +16,7 @@ import { TripTypeToggle, TripType } from '@/components/create/TripTypeToggle';
 import { cn } from '@/lib/utils';
 import { saveTrip } from '@/lib/storeAdapter';
 import { useUser } from '@/firebase/auth/use-user';
+import { openRideProvider } from '@/components/trip/rideLinks';
 
 type TripData = {
   name: string;
@@ -103,6 +104,43 @@ export default function CreateTripPage() {
   }
 
   const progress = ((step - 1) / 3) * 100;
+
+  const getCurrentCoords = async (): Promise<{lat: number, lng: number} | null> => {
+    return new Promise((resolve) => {
+      if (!navigator.geolocation) return resolve(null);
+      navigator.geolocation.getCurrentPosition(
+        (pos) => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+        () => resolve(null),
+        { enableHighAccuracy: true, timeout: 5000 }
+      );
+    });
+  };
+
+  const quickOpenMode = async (mode: string) => {
+    const pickup = await getCurrentCoords();
+    if (mode === 'rapido') {
+      openRideProvider('rapido', pickup || undefined, undefined);
+      return;
+    }
+    if (mode === 'ola') {
+      openRideProvider('ola', pickup || undefined, undefined);
+      return;
+    }
+    if (mode === 'uber') {
+      openRideProvider('uber', pickup || undefined, undefined);
+      return;
+    }
+    if (mode === 'metro') {
+      const url = 'https://www.google.com/maps/search/?api=1&query=metro%20near%20me';
+      window.open(url, '_blank');
+      return;
+    }
+    if (mode === 'bmtc') {
+      const url = 'https://www.google.com/maps/search/?api=1&query=bus%20stop%20near%20me';
+      window.open(url, '_blank');
+      return;
+    }
+  };
   
   return (
     <div className="flex flex-col min-h-screen items-center justify-center bg-gray-50 dark:bg-gray-900 p-4">
@@ -155,7 +193,16 @@ export default function CreateTripPage() {
                          <CardContent className="space-y-6 p-6">
                              <CardTitle>Step 3: How are you travelling?</CardTitle>
                             {tripData.tripType === 'within-city' ? (
-                                <CityModeSelector value={tripData.mode} onValueChange={(val) => updateTripData({ mode: val })} />
+                                <>
+                                  <CityModeSelector value={tripData.mode} onValueChange={(val) => updateTripData({ mode: val })} />
+                                  <div className="mt-4 grid grid-cols-2 sm:grid-cols-3 gap-2">
+                                    <Button variant="outline" onClick={() => quickOpenMode('metro')}>Open Metro</Button>
+                                    <Button variant="outline" onClick={() => quickOpenMode('rapido')}>Book Rapido</Button>
+                                    <Button variant="outline" onClick={() => quickOpenMode('ola')}>Book Ola</Button>
+                                    <Button variant="outline" onClick={() => quickOpenMode('uber')}>Book Uber</Button>
+                                    <Button variant="outline" onClick={() => quickOpenMode('bmtc')}>Find BMTC</Button>
+                                  </div>
+                                </>
                             ) : (
                                 <OutstationModeSelector value={tripData.mode} onValueChange={(val) => updateTripData({ mode: val })} />
                             )}

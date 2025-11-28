@@ -12,7 +12,6 @@ export async function openAppOrFallback({
 }) {
   return new Promise<void>((resolve) => {
     if (typeof window === "undefined") {
-      window.location.href = fallbackUrl;
       return resolve();
     }
 

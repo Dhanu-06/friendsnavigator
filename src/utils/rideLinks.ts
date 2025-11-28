@@ -5,6 +5,7 @@ export type LatLng = { latitude: number; longitude: number };
 export const buildUber = (pickup: LatLng, drop?: LatLng) => {
   const pu = `${pickup.latitude},${pickup.longitude}`;
   const dr = drop ? `${drop.latitude},${drop.longitude}` : "";
+  const dropPart = drop ? `&d_lat=${drop.latitude}&d_lng=${drop.longitude}` : "";
 
   return {
     appUrl: `uber://?action=setPickup&pickup=${pu}${dr ? `&dropoff=${dr}` : ""}`,
@@ -16,9 +17,10 @@ export const buildUber = (pickup: LatLng, drop?: LatLng) => {
 export const buildOla = (pickup: LatLng, drop?: LatLng) => {
   const pu = `${pickup.latitude},${pickup.longitude}`;
   const dr = drop ? `${drop.latitude},${drop.longitude}` : "";
+  const dropPart = drop ? `&d_lat=${drop.latitude}&d_lng=${drop.longitude}` : "";
 
   return {
-    appUrl: `olacabs://?lat=${pickup.latitude}&lng=${pickup.longitude}${dr ? `&d_lat=${drop.latitude}&d_lng=${drop.longitude}` : ""}`,
+    appUrl: `olacabs://?lat=${pickup.latitude}&lng=${pickup.longitude}${dropPart}`,
     androidIntentUrl: `intent://ola.com?pickup=${pu}${dr ? `&drop=${dr}` : ""}#Intent;scheme=olacabs;package=com.olacabs.customer;end`,
     fallbackUrl: `https://book.olacabs.com/?pickup=${pu}${dr ? `&drop=${dr}` : ""}`,
   };

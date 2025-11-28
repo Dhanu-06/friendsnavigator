@@ -40,13 +40,22 @@ try {
 }
 
 
-// Only connect to emulator when explicitly requested.
-if (process.env.NEXT_PUBLIC_USE_FIREBASE_EMULATOR === "true") {
+// Only connect to emulator when explicitly requested, with runtime override support.
+let useEmulatorFlag = process.env.NEXT_PUBLIC_USE_FIREBASE_EMULATOR === "true";
+try {
+  if (typeof window !== 'undefined') {
+    const override = window.localStorage.getItem('USE_FIREBASE_EMULATOR');
+    if (override === 'true') useEmulatorFlag = true;
+    if (override === 'false') useEmulatorFlag = false;
+  }
+} catch {}
+
+if (useEmulatorFlag) {
   console.info("[firebaseClient] Using Firebase Emulators");
 
   const firestoreHost = process.env.NEXT_PUBLIC_FIRESTORE_EMULATOR_HOST || 'localhost';
   const firestorePort = parseInt(process.env.NEXT_PUBLIC_FIRESTORE_EMULATOR_PORT || '8080', 10);
-  const authHost = process.env.NEXT_PUBLIC_FIREBASE_AUTH_EMULATOR_HOST || 'localhost:9099';
+  const authHost = process.env.NEXT_PUBLIC_FIREBASE_AUTH_EMULATOR_HOST || '127.0.0.1:9099';
   const authUrl = authHost.startsWith("http") ? authHost : `http://${authHost}`;
   
   try {
@@ -63,7 +72,7 @@ if (process.env.NEXT_PUBLIC_USE_FIREBASE_EMULATOR === "true") {
     // @ts-ignore - emulatorConfig is not in the type def
     if (auth && !auth.emulatorConfig) {
       console.info("[firebaseClient] connecting to auth emulator at", authUrl);
-      connectAuthEmulator(auth, authUrl);
+      connectAuthEmulator(auth, authUrl, { disableWarnings: true });
     }
   } catch (err) {
       console.warn("[firebaseClient] connectAuthEmulator failed (safe to ignore if already connected):", err);

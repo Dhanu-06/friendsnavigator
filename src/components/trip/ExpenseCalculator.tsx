@@ -19,7 +19,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
-import { Participant } from './ParticipantsList';
+type Person = { id: string; name: string };
 
 export type Expense = {
   id: string;
@@ -29,15 +29,15 @@ export type Expense = {
 };
 
 type ExpenseCalculatorProps = {
-  participants: Participant[];
+  participants: Person[];
   expenses: Expense[];
-  onAddExpense: (newExpense: Omit<Expense, 'id'>) => void;
+  onAddExpenseAction: (newExpense: Omit<Expense, 'id'>) => void;
 };
 
 export function ExpenseCalculator({
   participants,
   expenses,
-  onAddExpense,
+  onAddExpenseAction,
 }: ExpenseCalculatorProps) {
   const [paidBy, setPaidBy] = useState(participants[0]?.name || '');
   const [amount, setAmount] = useState('');
@@ -45,7 +45,7 @@ export function ExpenseCalculator({
 
   const handleAdd = () => {
     if (!paidBy || !amount || !label) return;
-    onAddExpense({
+    onAddExpenseAction({
       paidBy,
       amount: parseFloat(amount),
       label,

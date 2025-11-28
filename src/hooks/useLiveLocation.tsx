@@ -47,8 +47,8 @@ export default function useLiveLocation(tripId: string | null, user: User | null
         lat: pos.coords.latitude,
         lng: pos.coords.longitude,
         accuracy: pos.coords.accuracy,
-        heading: pos.coords.heading ?? null,
-        speed: pos.coords.speed ?? null,
+        heading: pos.coords.heading ?? undefined,
+        speed: pos.coords.speed ?? undefined,
         timestamp: pos.timestamp || Date.now(),
       };
       setLastPosition(coords);
