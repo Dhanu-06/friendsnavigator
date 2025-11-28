@@ -20,6 +20,7 @@ const FirebaseContext = createContext<FirebaseContextType | undefined>(undefined
 export function FirebaseProvider({ children }: { children: React.ReactNode }) {
   const memoizedValue = useMemo(() => {
     try {
+      // getFirebaseInstances is now robust and safe to call.
       const { app, auth, firestore } = getFirebaseInstances();
       return { app, auth, firestore };
     } catch (e) {
