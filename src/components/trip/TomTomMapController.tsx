@@ -25,8 +25,9 @@ type Props = {
   onRouteReady?: (coords: RouteCoords, summary: { travelTimeSeconds: number | null; distanceMeters: number | null; }) => void;
 };
 
-const TOMTOM_CSS = 'https://api.tomtom.com/maps-sdk-for-web/6.x/6.31.0/maps/maps.css';
-const TOMTOM_JS = 'https://api.tomtom.com/maps-sdk-for-web/6.x/6.31.0/maps/maps-web.min.js';
+const TOMTOM_CSS = 'https://api.tomtom.com/maps-sdk-for-web/cdn/6.x/6.25.0/maps/maps.css';
+const TOMTOM_JS = 'https://api.tomtom.com/maps-sdk-for-web/cdn/6.x/6.25.0/maps/maps-web.min.js';
+
 
 // Use client-visible key only for map tiles. Prefer server-side key for routing (we call /api/route).
 const TOMTOM_KEY_CLIENT = (process.env.NEXT_PUBLIC_TOMTOM_KEY as string) || '';
