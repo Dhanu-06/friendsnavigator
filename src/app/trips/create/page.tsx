@@ -35,7 +35,7 @@ export default function CreateTripPage() {
   const { toast } = useToast();
   const { user } = useUser();
 
-  const updateTripData = (data: Partial<TripData>>) => {
+  const updateTripData = (data: Partial<TripData>) => {
     setTripData((prev) => ({ ...prev, ...data }));
   };
 
@@ -48,15 +48,15 @@ export default function CreateTripPage() {
         router.push('/auth/login');
         return;
     }
-    
+
     // A real app would get lat/lng from a geocoding service
     const destination = {
         name: tripData.destination || 'Unknown',
         lat: 13.3702, // Mock Nandi Hills Lat
         lng: 77.6835, // Mock Nandi HIlls Lng
     };
-    
-    // ID generation must be client-side to avoid hydration mismatch
+
+    // Generate tripId on the client to avoid hydration mismatch
     const tripId = `${tripData.name?.substring(0,5).toUpperCase()}-${Math.random().toString(36).slice(2, 6)}`;
     
     const newTrip = {
