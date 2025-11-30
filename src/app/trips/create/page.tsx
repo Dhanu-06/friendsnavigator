@@ -56,8 +56,9 @@ export default function CreateTripPage() {
         lng: 77.6835, // Mock Nandi HIlls Lng
     };
 
-    // Generate tripId on the client to avoid hydration mismatch
-    const tripId = `${tripData.name?.substring(0,5).toUpperCase()}-${Math.random().toString(36).slice(2, 6)}`;
+    // Generate a robust tripId on the client
+    const tripId = `TRIP-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
+    setCreatedTripId(tripId);
     
     const newTrip = {
         id: tripId,
@@ -71,7 +72,6 @@ export default function CreateTripPage() {
     };
 
     const result = await saveTrip(tripId, newTrip);
-    setCreatedTripId(tripId);
 
     if (result.source === 'local-fallback') {
         toast({
@@ -121,16 +121,8 @@ export default function CreateTripPage() {
 
   const quickOpenMode = async (mode: string) => {
     const pickup = await getCurrentCoords();
-    if (mode === 'rapido') {
-      openRideProvider('rapido', pickup || undefined, undefined);
-      return;
-    }
-    if (mode === 'ola') {
-      openRideProvider('ola', pickup || undefined, undefined);
-      return;
-    }
-    if (mode === 'uber') {
-      openRideProvider('uber', pickup || undefined, undefined);
+    if (mode === 'rapido' || mode === 'ola' || mode === 'uber') {
+      openRideProvider(mode, pickup || undefined, undefined);
       return;
     }
     if (mode === 'metro') {
@@ -142,6 +134,24 @@ export default function CreateTripPage() {
       const url = 'https://www.google.com/maps/search/?api=1&query=bus%20stop%20near%20me';
       if (typeof window !== 'undefined') window.open(url, '_blank');
       return;
+    }
+  };
+
+  const openOutstationLink = (mode: 'redbus' | 'train' | 'flight') => {
+    let url = '';
+    switch (mode) {
+        case 'redbus':
+            url = 'https://www.redbus.in/';
+            break;
+        case 'train':
+            url = 'https://www.irctc.co.in/';
+            break;
+        case 'flight':
+            url = 'https://www.google.com/flights';
+            break;
+    }
+    if (url && typeof window !== 'undefined') {
+        window.open(url, '_blank');
     }
   };
   
@@ -207,7 +217,14 @@ export default function CreateTripPage() {
                                   </div>
                                 </>
                             ) : (
-                                <OutstationModeSelector value={tripData.mode} onValueChange={(val) => updateTripData({ mode: val })} />
+                                <>
+                                  <OutstationModeSelector value={tripData.mode} onValueChange={(val) => updateTripData({ mode: val })} />
+                                  <div className="mt-4 grid grid-cols-2 sm:grid-cols-3 gap-2">
+                                      <Button variant="outline" onClick={() => openOutstationLink('redbus')}>Open RedBus</Button>
+                                      <Button variant="outline" onClick={() => openOutstationLink('train')}>Open IRCTC</Button>
+                                      <Button variant="outline" onClick={() => openOutstationLink('flight')}>Search Flights</Button>
+                                  </div>
+                                </>
                             )}
                         </CardContent>
                         <CardFooter className="flex justify-between">
@@ -251,5 +268,3 @@ export default function CreateTripPage() {
     </div>
   );
 }
-
-    
