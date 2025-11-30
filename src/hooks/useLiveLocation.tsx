@@ -58,10 +58,9 @@ export default function useLiveLocation(tripId: string | null, user: User | null
       if (now - lastPublishedRef.current >= watchIntervalMs) {
         lastPublishedRef.current = now;
         try {
-          // This call will either write to Firestore or do nothing if emulators are off.
-          // The local state update is handled separately in the Trip page.
           await publishParticipantLocation(tripId, user, coords);
         } catch (e) {
+          // This catch block prevents an unhandled rejection from crashing the app
           console.error("Failed publishing location. The app will continue with local updates.", e);
         }
       }

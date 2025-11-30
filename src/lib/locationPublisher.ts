@@ -56,21 +56,20 @@ export async function publishParticipantLocation(tripId: string, user: User, coo
 
 
   const ref = doc(firestore, "trips", tripId, "participants", user.id);
-  setDoc(ref, payload, { merge: true })
-    .then(() => {
-        return { source: "firestore" };
-    })
-    .catch((err) => {
-        console.warn("publishParticipantLocation: Firestore write failed. The useTripRealtime hook will handle local storage fallback.", err);
-        const permissionError = new FirestorePermissionError({
-            path: ref.path,
-            operation: 'update',
-            requestResourceData: payload,
-        });
-        errorEmitter.emit('permission-error', permissionError);
-        // DO NOT re-throw the error, as it's an unhandled rejection that crashes the app.
-        // The emitter will surface it to the dev overlay without crashing.
-  });
+  try {
+    await setDoc(ref, payload, { merge: true });
+    return { source: "firestore" };
+  } catch (err) {
+    console.warn("publishParticipantLocation: Firestore write failed. The useTripRealtime hook will handle local storage fallback.", err);
+    const permissionError = new FirestorePermissionError({
+        path: ref.path,
+        operation: 'update',
+        requestResourceData: payload,
+    });
+    errorEmitter.emit('permission-error', permissionError);
+    // Return a resolved promise with an error indicator instead of throwing
+    return { source: "error", error: err };
+  }
 }
 
 /** readParticipantsLocalFallback(tripId) */
