@@ -9,13 +9,14 @@ export default function useTomTomLoader() {
   useEffect(() => {
     if (typeof window === "undefined") return;
     if (loadingRef.current) return;
-    loadingRef.current = true;
+    
 
     const key = process.env.NEXT_PUBLIC_TOMTOM_KEY;
     if (!key) {
       setError("NEXT_PUBLIC_TOMTOM_KEY not set in environment");
       return;
     }
+    loadingRef.current = true;
 
     // CDN URLs (version pinned to 6.x example)
     const scriptSrc = "https://api.tomtom.com/maps-sdk-for-web/cdn/6.x/6.25.0/maps/maps-web.min.js";

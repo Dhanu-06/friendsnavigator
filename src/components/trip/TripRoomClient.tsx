@@ -20,9 +20,8 @@ import useLiveLocation from '@/hooks/useLiveLocation';
 import { useUser } from '@/firebase/auth/use-user';
 import RideButton from './RideButton';
 import RoutePolyline from '@/components/RoutePolyline';
-import { fetchJson } from '@/lib/fetchJson';
+import TomTomMapController from './TomTomMapController';
 
-const TripMap = dynamic(() => import("../TripMap.client"), { ssr: false });
 
 type Participant = {
   id: string;
@@ -58,7 +57,7 @@ export default function TripRoomClient({ tripId }: { tripId: string }) {
       id: authUser.uid,
       name: authUser.displayName || authUser.email || 'Anonymous',
       avatarUrl: authUser.photoURL || `https://i.pravatar.cc/150?u=${authUser.uid}`,
-      mode: tripDoc?.mode || 'car',
+      mode: tripDoc?.participants.find(p => p.id === authUser.uid)?.mode || 'car',
     };
   }, [authUser, tripDoc]);
 
@@ -81,7 +80,13 @@ export default function TripRoomClient({ tripId }: { tripId: string }) {
   const [followId, setFollowId] = useState<string | null>(null);
 
   // origin/destination deduced from Firestore doc (if present) or fallbacks
-  const originState = useMemo(() => tripDoc?.pickup ?? null, [tripDoc]);
+  const originState = useMemo(() => {
+      if (tripDoc?.pickup) return tripDoc.pickup;
+      const firstParticipant = participants.find(p => p.coords);
+      if (firstParticipant?.coords) return { lat: firstParticipant.coords.lat, lng: firstParticipant.coords.lng };
+      return null;
+  }, [tripDoc, participants]);
+
   const destinationState = useMemo(() => tripDoc?.destination ?? null, [tripDoc]);
 
 
@@ -97,8 +102,8 @@ export default function TripRoomClient({ tripId }: { tripId: string }) {
 
 
   // Reverse geocode friendly names (hook will cache and call /api/reverse-geocode)
-  const pickupLat = originState?.lat ?? participants[0]?.coords?.lat ?? 12.9716;
-  const pickupLng = originState?.lng ?? participants[0]?.coords?.lng ?? 77.5946;
+  const pickupLat = originState?.lat ?? 12.9716;
+  const pickupLng = originState?.lng ?? 77.5946;
   const destLat = destinationState?.lat ?? 12.9750;
   const destLng = destinationState?.lng ?? 77.5990;
 
@@ -118,29 +123,26 @@ export default function TripRoomClient({ tripId }: { tripId: string }) {
         id: p.id,
         name: p.name || 'Anonymous',
         avatarUrl: p.avatarUrl || `https://i.pravatar.cc/150?u=${p.id}`,
-        mode: p.mode || 'Car',
+        mode: p.mode || '...',
         eta: participantETAs[p.id] ? `${Math.round(participantETAs[p.id].etaSeconds / 60)} min` : '...',
         status: 'On the way' as const,
         coords: p.coords ? { lat: p.coords.lat, lon: p.coords.lng } : undefined,
     }));
   }, [participants, participantETAs]);
   
-  
-  const [mapStatus, setMapStatus] = useState("");
 
-  async function testRoute() {
-    try {
-        setMapStatus("Requesting route...");
-      const origin = "77.5946,12.9716";
-      const destination = "77.60,12.98";
-      const data = await fetchJson(`/api/route?origin=${origin}&destination=${destination}`);
-      console.log("Route response:", data);
-      setMapStatus("Route response received (see console)");
-    } catch (err: any) {
-      console.error("Route fetch error:", err);
-      setMapStatus(`Route error: ${err.message}`);
-    }
-  }
+  const onParticipantETA = useCallback((id: string, data: { etaSeconds: number | null; distanceMeters: number | null; }) => {
+    if (data.etaSeconds === null) return;
+    setParticipantETAs(prev => ({
+        ...prev,
+        [id]: { etaSeconds: data.etaSeconds!, distanceMeters: data.distanceMeters! },
+    }));
+  }, []);
+
+  const onRouteReady = useCallback((coords: RouteCoords, summary: { travelTimeSeconds: number | null; distanceMeters: number | null; }) => {
+      setRouteCoords(coords);
+      setRouteSummary(summary);
+  }, []);
 
 
   if (authLoading) {
@@ -155,7 +157,24 @@ export default function TripRoomClient({ tripId }: { tripId: string }) {
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 xl:grid-cols-4 h-screen bg-muted/20">
       <div className="lg:col-span-2 xl:col-span-3 h-full relative">
-        <TripMap center={destinationState ? [destinationState.lng, destinationState.lat] : undefined} />
+        <TomTomMapController 
+            participants={participantsById}
+            onMapReady={setMapInstance}
+            onParticipantETA={onParticipantETA}
+            onRouteReady={onRouteReady}
+            computeRoutes={computeRoutesEnabled}
+            origin={originState}
+            destination={destinationState}
+            followId={followId}
+            initialCenter={destinationState ? {lat: destinationState.lat, lng: destinationState.lng} : undefined}
+        />
+        {mapInstance && computeRoutesEnabled && routeCoords.length > 0 && (
+            <RoutePolyline 
+                map={mapInstance}
+                routeCoords={routeCoords}
+                etaMinutes={routeSummary.travelTimeSeconds ? routeSummary.travelTimeSeconds / 60 : undefined}
+            />
+        )}
         
         <div className="absolute top-4 left-4 z-10">
             <Card className="p-2">
@@ -176,8 +195,6 @@ export default function TripRoomClient({ tripId }: { tripId: string }) {
             <TabsContent value="participants" className="flex-1 overflow-y-auto px-4">
                 <div className="space-y-4">
                     <ComputeToggle value={computeRoutesEnabled} onChange={setComputeRoutesEnabled} />
-                     <button onClick={testRoute} style={{ marginLeft: 16 }}>Test Route</button>
-                    <div>{mapStatus}</div>
                     <ParticipantsList participants={augmentedParticipants} />
                      <div className="space-y-2 pt-4">
                       <h4 className="font-semibold">Book a ride</h4>

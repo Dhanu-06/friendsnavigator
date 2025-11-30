@@ -27,8 +27,8 @@ const statusColors = {
 
 export function ParticipantsList({ participants }: { participants: Participant[] }) {
   return (
-      <CardContent>
-        <ScrollArea className="h-[calc(100vh-250px)]">
+      <div>
+        <ScrollArea className="h-[calc(100vh-450px)]">
           <div className="space-y-4">
             {participants.map((p) => (
               <div key={p.id} className="flex items-center gap-4">
@@ -53,6 +53,6 @@ export function ParticipantsList({ participants }: { participants: Participant[]
             ))}
           </div>
         </ScrollArea>
-      </CardContent>
+      </div>
   );
 }

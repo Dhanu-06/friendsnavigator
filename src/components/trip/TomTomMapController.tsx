@@ -47,6 +47,7 @@ export default function TomTomMapController({
   const pollTimerRef = useRef<number | null>(null);
   const { loaded: sdkReady, error: sdkError } = useTomTomLoader();
   const [mapInitError, setMapInitError] = useState<string | null>(null);
+  const TOMTOM_KEY_CLIENT = process.env.NEXT_PUBLIC_TOMTOM_KEY;
 
   useEffect(() => {
     if (sdkError) {
@@ -67,13 +68,12 @@ export default function TomTomMapController({
     }
 
     try {
-      const key = process.env.NEXT_PUBLIC_TOMTOM_KEY;
-      if (!key) {
+      if (!TOMTOM_KEY_CLIENT) {
         setMapInitError("NEXT_PUBLIC_TOMTOM_KEY is not set. Please add it to your .env file to display the map.");
         return;
       }
       const map = tt.map({
-        key,
+        key: TOMTOM_KEY_CLIENT,
         container: containerRef.current,
         center: [initialCenter.lng, initialCenter.lat],
         zoom: initialZoom,
@@ -85,7 +85,7 @@ export default function TomTomMapController({
       console.error('TomTom map init error', e);
       setMapInitError(e.message || 'An unknown error occurred during map initialization.');
     }
-  }, [sdkReady, initialCenter.lat, initialCenter.lng, initialZoom, onMapReady]);
+  }, [sdkReady, initialCenter.lat, initialCenter.lng, initialZoom, onMapReady, TOMTOM_KEY_CLIENT]);
 
 
   /* --------------------------
