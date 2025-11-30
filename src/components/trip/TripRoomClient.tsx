@@ -78,19 +78,35 @@ export default function TripRoomClient({ tripId }: { tripId: string }) {
   });
 
   const [etas, setEtas] = useState<Record<string, { etaSeconds: number }>>({});
-  useEffect(() => {
-    const unsub = poller.etaService.subscribe(() => {
-      const newEtas: Record<string, { etaSeconds: number }> = {};
-      for (const p of liveParticipants) {
-        const smoothed = poller.etaService.getSmoothed(p.id);
-        if (smoothed) {
-          newEtas[p.id] = { etaSeconds: smoothed.etaSeconds };
+  const [, setTick] = useState(0);
+
+    useEffect(() => {
+        let cleanupFn: (() => void) | undefined;
+        // The poller returns a `getSmoothed` method but not subscribe.
+        // We use a timer to ask it for updates and trigger re-renders.
+        const pollerObj = poller as any;
+        if (typeof pollerObj?.getSmoothed === 'function') {
+            const iv = setInterval(() => {
+            const newEtas: Record<string, { etaSeconds: number }> = {};
+            for (const p of liveParticipants) {
+                const smoothed = pollerObj.getSmoothed(p.id);
+                if (smoothed) {
+                newEtas[p.id] = { etaSeconds: smoothed.etaSeconds };
+                }
+            }
+            setEtas(newEtas);
+            setTick(t => t + 1);
+            }, 1500);
+            cleanupFn = () => clearInterval(iv);
+        } else {
+            console.warn("[TripRoomClient] poller not ready for subscribe; UI will not auto-update ETAs");
         }
-      }
-      setEtas(newEtas);
-    });
-    return unsub;
-  }, [poller.etaService, liveParticipants]);
+
+        return () => {
+            try { cleanupFn && cleanupFn(); } catch (e) { /* ignore */ }
+        };
+    }, [poller, liveParticipants]);
+
 
   const participantsWithEta = useMemo(() => {
     return liveParticipants.map(p => ({
