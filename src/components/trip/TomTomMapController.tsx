@@ -111,7 +111,8 @@ export default function TomTomMapController({
 
     try {
       if (!TOMTOM_KEY_CLIENT) {
-        throw new Error("NEXT_PUBLIC_TOMTOM_KEY is not set. The map cannot be initialized.");
+        setMapInitError("NEXT_PUBLIC_TOMTOM_KEY is not set. Please add it to your .env file to display the map.");
+        return;
       }
       const map = tt.map({
         key: TOMTOM_KEY_CLIENT,
