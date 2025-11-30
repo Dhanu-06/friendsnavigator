@@ -1,4 +1,3 @@
-
 // src/components/trip/TripRoomClient.tsx
 "use client";
 import React, { useEffect, useMemo, useState } from "react";
@@ -10,6 +9,7 @@ import useTripRealtime from "@/hooks/useTripRealtime";
 import { useUser } from "@/firebase/auth/use-user";
 import TomTomMapController from "./TomTomMapController";
 import RoutePolyline from "./RoutePolyline";
+import useLiveLocation from "@/hooks/useLiveLocation";
 
 const TripMap = dynamic(() => import("../TripMap.client"), { ssr: false });
 
@@ -24,7 +24,7 @@ export default function TripRoomClient({ tripId }: { tripId: string }) {
   
   const {
     tripDoc,
-    participants,
+    participants: liveParticipants,
     messages,
     expenses,
     status: tripStatus,
@@ -33,9 +33,34 @@ export default function TripRoomClient({ tripId }: { tripId: string }) {
     addExpense,
   } = useTripRealtime(tripId, authUser);
 
+  const currentUserForLocation = useMemo(() => {
+    if (!authUser) return null;
+    return {
+      id: authUser.uid,
+      name: authUser.displayName || 'Anonymous',
+      avatarUrl: authUser.photoURL,
+    }
+  }, [authUser]);
+
+  useLiveLocation(tripId, currentUserForLocation, { enableWatch: true });
+  
+  const participantsWithLocation = useMemo(() => {
+    return liveParticipants.filter(p => p.coords?.lat && p.coords?.lng).map(p => ({
+      id: p.id,
+      name: p.name,
+      lat: p.coords!.lat,
+      lng: p.coords!.lng,
+    }));
+  }, [liveParticipants]);
+
+  const participantsMapForController = useMemo(() => {
+    return Object.fromEntries(participantsWithLocation.map(p => [p.id, p]));
+  }, [participantsWithLocation]);
+
+
   // start poller
   const { lastPoll, getSmoothed } = useEtaPoller({
-    participants: participants.filter(p => p.lat && p.lng) as any,
+    participants: participantsWithLocation,
     destination,
     live,
     intervalMs: 5000,
@@ -85,14 +110,17 @@ export default function TripRoomClient({ tripId }: { tripId: string }) {
       <div style={{ display: "flex", gap: 12 }}>
         <div style={{ flex: 1 }}>
           <div style={{ height: 600 }}>
-            <TripMap />
+             <TomTomMapController 
+                participants={participantsMapForController} 
+                destination={destination}
+              />
           </div>
         </div>
 
         <aside style={{ width: 360, borderLeft: "1px solid #eee", paddingLeft: 12 }}>
           <h3>Participants</h3>
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-            {participants.map(p => (
+            {liveParticipants.map(p => (
               <div key={p.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: 8, borderRadius: 8, background: "#fff" }}>
                 <div>
                   <div style={{ fontWeight: 700 }}>{p.name}</div>

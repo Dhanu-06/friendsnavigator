@@ -42,7 +42,7 @@ export default function useLiveLocation(tripId: string | null, user: User | null
         return;
     }
 
-    const success = async (pos: GeolocationPosition) => {
+    const success = (pos: GeolocationPosition) => {
       const coords: Coords = {
         lat: pos.coords.latitude,
         lng: pos.coords.longitude,
@@ -57,12 +57,10 @@ export default function useLiveLocation(tripId: string | null, user: User | null
       const now = Date.now();
       if (now - lastPublishedRef.current >= watchIntervalMs) {
         lastPublishedRef.current = now;
-        try {
-          await publishParticipantLocation(tripId, user, coords);
-        } catch (e) {
-          // This catch block prevents an unhandled rejection from crashing the app
-          console.error("Failed publishing location. The app will continue with local updates.", e);
-        }
+        publishParticipantLocation(tripId, user, coords).catch(e => {
+            // This catch block prevents an unhandled rejection from crashing the app
+            console.error("Failed publishing location. The app will continue with local updates.", e);
+        });
       }
     };
 
