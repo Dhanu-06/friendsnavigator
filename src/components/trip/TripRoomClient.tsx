@@ -28,6 +28,7 @@ type Participant = {
   name?: string;
   lat: number;
   lng: number;
+  mode?: string;
 };
 
 type RouteCoords = Array<{ latitude: number; longitude: number }>;
@@ -37,9 +38,16 @@ export default function TripRoomClient({ tripId }: { tripId: string }) {
   const { toast } = useToast();
   const { user: authUser, loading: authLoading } = useUser();
   const [mapInstance, setMapInstance] = useState<any>(null);
+  const [mapReady, setMapReady] = useState(false);
   const [routeCoords, setRouteCoords] = useState<RouteCoords>([]);
   const [routeSummary, setRouteSummary] = useState<{ travelTimeSeconds: number | null, distanceMeters: number | null;}>({ travelTimeSeconds: null, distanceMeters: null});
 
+  const { participants, messages, expenses, tripDoc, status, sendMessage, addExpense } = useTripRealtime(tripId, authUser ? {
+    id: authUser.uid,
+    name: authUser.displayName || authUser.email || 'Anonymous',
+    avatarUrl: authUser.photoURL || `https://i.pravatar.cc/150?u=${authUser.uid}`,
+    mode: tripDoc?.mode || 'car',
+  }: null);
 
   const currentUser = useMemo(() => {
     if (!authUser) return null;
@@ -50,15 +58,13 @@ export default function TripRoomClient({ tripId }: { tripId: string }) {
     };
   }, [authUser]);
 
-  const { participants, messages, expenses, tripDoc, status, sendMessage, addExpense } = useTripRealtime(tripId, currentUser);
-
-  useLiveLocation(tripId, currentUser, { enableWatch: true });
+  useLiveLocation(tripId, currentUser, { enableWatch: true, watchIntervalMs: 5000 });
 
   const participantsById = useMemo(() => {
     const m: Record<string, Participant> = {};
     (participants || []).forEach((p) => {
-      if (!p || !p.id || p.lat == null || p.lng == null) return;
-      m[p.id] = {id: p.id, name: p.name, lat: p.lat, lng: p.lng};
+      if (!p || !p.id || !p.coords?.lat || !p.coords?.lng) return;
+      m[p.id] = {id: p.id, name: p.name, lat: p.coords.lat, lng: p.coords.lng, mode: p.mode};
     });
     return m;
   }, [participants]);
@@ -127,6 +133,11 @@ export default function TripRoomClient({ tripId }: { tripId: string }) {
         coords: p.coords ? { lat: p.coords.lat, lon: p.coords.lng } : undefined,
     }));
   }, [participants, participantETAs]);
+  
+  const handleMapReady = (map: any) => {
+    setMapInstance(map);
+    setMapReady(true);
+  }
 
   if (authLoading) {
     return <div className="flex h-screen w-full items-center justify-center">Loading user...</div>;
@@ -149,13 +160,13 @@ export default function TripRoomClient({ tripId }: { tripId: string }) {
             initialZoom={13}
             origin={originState ?? { lat: pickupLat, lng: pickupLng }}
             destination={destinationState ?? { lat: destLat, lng: destLng }}
-            onMapReady={setMapInstance}
+            onMapReady={handleMapReady}
             onRouteReady={(coords, summary) => {
                 setRouteCoords(coords);
                 setRouteSummary(summary);
             }}
         />
-        {mapInstance && routeCoords.length > 0 && computeRoutesEnabled && (
+        {mapReady && routeCoords.length > 0 && computeRoutesEnabled && (
             <RoutePolyline
                 map={mapInstance}
                 routeCoords={routeCoords}

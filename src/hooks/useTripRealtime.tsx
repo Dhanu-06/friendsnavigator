@@ -28,7 +28,7 @@ export type Participant = {
   etaMinutes?: number;
   status?: string;
   coords?: { lat: number; lng: number };
-  updatedAt?: number | any;
+  updatedAt?: any;
 };
 
 export type Message = {
@@ -54,13 +54,14 @@ export type TripDoc = {
     expenses: Expense[];
     pickup?: { lat: number, lng: number };
     destination?: { lat: number, lng: number };
+    mode?: string;
 };
 
 const useEmulator = process.env.NEXT_PUBLIC_USE_FIREBASE_EMULATOR === 'true';
 
 export default function useTripRealtime(
   tripId: string,
-  currentUser: { id: string; name: string; avatarUrl: string } | null
+  currentUser: { id: string; name: string; avatarUrl: string, mode?: string } | null
 ) {
   const [tripDoc, setTripDoc] = useState<TripDoc | null>(null);
   const [participants, setParticipants] = useState<Participant[]>([]);
@@ -102,17 +103,23 @@ export default function useTripRealtime(
     
     // Add current user to participants list on load
     if (currentUser) {
-        const p = {
+        const p: Participant = {
             id: currentUser.id,
             name: currentUser.name,
             avatarUrl: currentUser.avatarUrl,
+            mode: currentUser.mode,
         };
         const trip = getTripLocal(tripId) || { id: tripId, participants: [], messages: [], expenses: [] };
-        if (!trip.participants.some((par: Participant) => par.id === p.id)) {
+        const existingParticipantIndex = trip.participants.findIndex((par: Participant) => par.id === p.id);
+
+        if (existingParticipantIndex === -1) {
             trip.participants.push(p);
-            saveTripLocal(tripId, trip);
-            setParticipants([...trip.participants]);
+        } else {
+            trip.participants[existingParticipantIndex] = { ...trip.participants[existingParticipantIndex], ...p};
         }
+        
+        saveTripLocal(tripId, trip);
+        setParticipants([...trip.participants]);
     }
 
     if (!useEmulator) {

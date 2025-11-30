@@ -101,6 +101,10 @@
         "id": { "type": "string", "description": "Matches the user's UID." },
         "name": { "type": "string" },
         "avatarUrl": { "type": "string", "format": "uri" },
+        "mode": {
+          "type": "string",
+          "description": "The selected mode of transport."
+        },
         "currentLocation": {
           "type": "object",
           "properties": {

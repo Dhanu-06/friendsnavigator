@@ -1,8 +1,9 @@
-// src/lib/locationPublisher.ts
 'use client';
 
 import { doc, setDoc, serverTimestamp, type Firestore } from "firebase/firestore";
 import { getFirebaseInstances } from "@/lib/firebaseClient";
+import { errorEmitter } from "@/firebase/error-emitter";
+import { FirestorePermissionError } from "@/firebase/errors";
 
 /**
  * publishParticipantLocation(tripId, user, coords)
@@ -45,9 +46,6 @@ export async function publishParticipantLocation(tripId: string, user: User, coo
   const useEmulator = process.env.NEXT_PUBLIC_USE_FIREBASE_EMULATOR === 'true';
 
   if (!useEmulator) {
-     // When not using the emulator, we assume we might be in an offline-first scenario
-     // or a production build where optimistic updates are handled by the realtime hook's state.
-     // The hook will manage writing to a local fallback if the network is down.
      return { source: "local" };
   }
 
@@ -57,15 +55,21 @@ export async function publishParticipantLocation(tripId: string, user: User, coo
   }
 
 
-  try {
-    const ref = doc(firestore, "trips", tripId, "participants", user.id);
-    await setDoc(ref, payload, { merge: true });
-    return { source: "firestore" };
-  } catch (err) {
-    console.warn("publishParticipantLocation: Firestore write failed. The useTripRealtime hook will handle local storage fallback.", err);
-    // Throw the error so the caller knows the write failed, allowing the UI to react if needed.
-    throw err;
-  }
+  const ref = doc(firestore, "trips", tripId, "participants", user.id);
+  setDoc(ref, payload, { merge: true })
+    .then(() => {
+        return { source: "firestore" };
+    })
+    .catch((err) => {
+        console.warn("publishParticipantLocation: Firestore write failed. The useTripRealtime hook will handle local storage fallback.", err);
+        const permissionError = new FirestorePermissionError({
+            path: ref.path,
+            operation: 'update',
+            requestResourceData: payload,
+        });
+        errorEmitter.emit('permission-error', permissionError);
+        throw err;
+  });
 }
 
 /** readParticipantsLocalFallback(tripId) */
