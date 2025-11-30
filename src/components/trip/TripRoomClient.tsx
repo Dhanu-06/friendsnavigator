@@ -2,328 +2,248 @@
 "use client";
 import React, { useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
-import useEtaPoller from "../../hooks/useEtaPoller";
-import { fetchJson } from "../../lib/fetchJson";
-import DestinationSearch from "../DestinationSearch.client";
-import useTripRealtime from "@/hooks/useTripRealtime";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useUser } from "@/firebase/auth/use-user";
-import TomTomMapController from "./TomTomMapController";
+import useTripRealtime from "@/hooks/useTripRealtime";
 import useLiveLocation from "@/hooks/useLiveLocation";
-import ChatPanel from "./ChatPanel.client";
-import ExpensePanel from "./ExpensePanel.client";
+import useEtaPoller from "@/hooks/useEtaPoller";
+import TomTomMapController from "./TomTomMapController";
+import { ParticipantsList } from "./ParticipantsList";
+import { ChatBox } from "./ChatBox";
+import { ExpenseCalculator } from "./ExpenseCalculator";
+import ComputeToggle from "./ComputeToggle";
+import { Skeleton } from "../ui/skeleton";
+import { TripCodeBadge } from "./TripCodeBadge";
+import { useToast } from "../ui/use-toast";
+import type { Message, Expense } from "@/hooks/useTripRealtime";
 
-const TripMap = dynamic(() => import("../TripMap.client"), { ssr: false });
-
-type Participant = { id: string; name: string; vehicle?: string; lng: number; lat: number; };
+const RoutePolyline = dynamic(() => import("../RoutePolyline"), {
+  ssr: false,
+});
 
 export default function TripRoomClient({ tripId }: { tripId: string }) {
-  // UI state
-  const [live, setLive] = useState(true);
-  const [tab, setTab] = useState<"chat" | "expenses">("chat");
   const { user, loading: userLoading } = useUser();
-  
-  const { 
-    tripDoc, 
-    participants, 
+  const { toast } = useToast();
+  const [computeRoutes, setComputeRoutes] = useState(false);
+  const [mapInstance, setMapInstance] = useState<any | null>(null);
+  const [routeCoords, setRouteCoords] = useState<any[]>([]);
+  const [routeSummary, setRouteSummary] = useState<{
+    travelTimeSeconds: number | null;
+    distanceMeters: number | null;
+  }>({ travelTimeSeconds: null, distanceMeters: null });
+
+  const {
+    tripDoc,
+    participants,
+    messages,
+    expenses,
     status: tripStatus,
     error: tripError,
+    sendMessage,
+    addExpense,
   } = useTripRealtime(tripId, user);
 
-  const { lastPosition } = useLiveLocation(tripId, user ? { id: user.uid, name: user.displayName || 'Me' } : null, { enableWatch: live });
-
-
-  const [destination, setDestination] = useState<{ lat: number; lng: number, name?: string } | null>(null);
-  const [status, setStatus] = useState("");
-  const [hovered, setHovered] = useState<string | null>(null);
-  const [pinnedPreview, setPinnedPreview] = useState<string | null>(null);
-  const [originMode, setOriginMode] = useState<"pickup" | "device" | "participant">("pickup");
-  const [participantOriginId, setParticipantOriginId] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (tripDoc?.destination) {
-      setDestination(tripDoc.destination);
-    }
-  }, [tripDoc]);
-
-
-  // compute origin position based on origin mode
-  function computeOrigin() {
-    if (originMode === "pickup") {
-      return tripDoc?.pickup || null;
-    } else if (originMode === "device") {
-      return lastPosition || null;
-    } else if (originMode === "participant") {
-      if (!participantOriginId) return null;
-      const p = participants.find(x => x.id === participantOriginId);
-      if (!p || !p.coords) return null;
-      return { lat: p.coords.lat, lng: p.coords.lng };
-    }
-    return null;
-  }
-  
-  const mainOrigin = computeOrigin();
+  const { lastPosition } = useLiveLocation(
+    tripId,
+    user ? { id: user.uid, name: user.displayName || "Me" } : null,
+    { enableWatch: true }
+  );
 
   const liveParticipants = useMemo(() => {
-    return participants.filter(p => p.coords?.lat && p.coords?.lng).map(p => ({
+    return participants
+      .filter((p) => p.coords?.lat && p.coords?.lng)
+      .map((p) => ({
         id: p.id,
         lat: p.coords!.lat,
         lng: p.coords!.lng,
         name: p.name,
-    }));
+      }));
   }, [participants]);
 
-  // Poller: participants feed into polling; destination used as target
   const poller = useEtaPoller({
     participants: liveParticipants,
-    destination,
-    live,
+    destination: tripDoc?.destination,
+    live: computeRoutes,
     intervalMs: 5000,
-    assumedSpeedKmph: 35,
   });
 
-  useEffect(() => {
-    setStatus(live ? "Live ON" : "Live OFF");
-  }, [live]);
+  const getEtaText = (s: number | null | undefined) => {
+    if (s == null) return "--";
+    const mins = Math.round(s / 60);
+    return `${mins} min`;
+  };
 
-  // SAFE subscribe / re-render mechanism
-  const [, setTick] = useState(0);
-  useEffect(() => {
-    let cleanup: (() => void) | undefined;
-    if (poller && typeof (poller as any).subscribe === "function") {
-      cleanup = (poller as any).subscribe(() => setTick(t => t + 1));
-    } else if (poller && typeof (poller as any).getSmoothed === "function") {
-      const iv = window.setInterval(() => setTick(t => t + 1), 1500);
-      cleanup = () => window.clearInterval(iv);
-    } else {
-      console.warn("[TripRoomClient] no poller available for subscribe; UI may not auto-update ETAs");
-    }
-    return () => { try { cleanup && cleanup(); } catch {} };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [poller]);
+  const participantDataForUI = useMemo(() => {
+    return participants.map((p) => {
+      const smoothed = poller.getSmoothed(p.id);
+      return {
+        ...p,
+        eta: getEtaText(smoothed?.etaSeconds),
+        status: "On the way",
+        mode: "Car", // Placeholder
+      };
+    });
+  }, [participants, poller]);
 
+  const chatMessagesForUI = useMemo(() => {
+    return messages.map((m: Message) => ({
+      id: m.id,
+      userName: m.senderId === user?.uid ? "You" : m.userName,
+      text: m.text,
+      timestamp: m.createdAt,
+      avatarUrl: m.avatarUrl,
+    }));
+  }, [messages, user]);
 
-  async function togglePinPreview(p: Participant) {
-    try {
-      if (pinnedPreview === p.id) {
-        setPinnedPreview(null);
-        if ((window as any).__trip_map_clearPreview) (window as any).__trip_map_clearPreview();
-        setStatus(`Unpinned preview for ${p.name}`);
-        return;
-      }
-      setPinnedPreview(p.id);
-      if (!p.coords) return;
-      const origin = `${p.coords.lng},${p.coords.lat}`;
-      if (!destination) {
-        setStatus("Select a destination first to generate preview.");
-        return;
-      }
-      const destStr = `${destination.lng},${destination.lat}`;
-      setStatus(`Pinning preview for ${p.name}...`);
-      const { data: routeData } = await fetchJson(`/api/route?origin=${encodeURIComponent(origin)}&destination=${encodeURIComponent(destStr)}`);
-      const geojson = normalizeRouteToGeoJSON(routeData);
-      if (geojson && (window as any).__trip_map_drawPreview) {
-        (window as any).__trip_map_drawPreview(geojson);
-      }
-      setStatus(`Pinned preview for ${p.name}`);
-    } catch (e: any) {
-      console.error("pin preview error", e);
-      setStatus("Pin preview failed: " + (e?.message ?? ""));
-    }
+  const expenseDataForUI = useMemo(() => {
+    return expenses.map((e: Expense) => ({
+      id: e.id,
+      paidBy: participants.find(p => p.id === e.paidBy)?.name || 'Someone',
+      amount: e.amount,
+      label: e.label,
+    }));
+  }, [expenses, participants]);
+
+  if (userLoading || tripStatus === "connecting") {
+    return (
+      <div className="flex h-screen w-full items-center justify-center">
+        <div className="space-y-4 w-full max-w-4xl p-8">
+            <Skeleton className="h-12 w-1/2" />
+            <Skeleton className="h-8 w-1/4" />
+            <div className="grid grid-cols-3 gap-8 pt-8">
+                <div className="col-span-2 space-y-4">
+                    <Skeleton className="h-[500px] w-full" />
+                </div>
+                <div className="space-y-4">
+                    <Skeleton className="h-24 w-full" />
+                    <Skeleton className="h-64 w-full" />
+                </div>
+            </div>
+        </div>
+      </div>
+    );
   }
 
-  async function handleHoverIn(p: Participant) {
-    setHovered(p.id);
-    if (pinnedPreview === p.id) return;
-    if (!destination || !p.coords) return;
-    try {
-      const origin = `${p.coords.lng},${p.coords.lat}`;
-      const destStr = `${destination.lng},${destination.lat}`;
-      const { data: routeData } = await fetchJson(`/api/route?origin=${encodeURIComponent(origin)}&destination=${encodeURIComponent(destStr)}`);
-      const geojson = normalizeRouteToGeoJSON(routeData);
-      if (geojson && (window as any).__trip_map_drawPreview) {
-        (window as any).__trip_map_drawPreview(geojson);
-      }
-    } catch (e) {
-      console.warn("hover preview error", e);
-    }
+  if (tripStatus === "error" || !tripDoc) {
+    return (
+      <div className="container mx-auto py-10 text-center">
+        <Card className="max-w-md mx-auto">
+          <CardHeader>
+            <CardTitle className="text-destructive">Trip Not Found</CardTitle>
+            <CardDescription>
+              We couldn't load the details for this trip. It might have been
+              deleted, or you may not have permission to view it.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <p className="text-sm text-muted-foreground">
+              Error: {tripError?.message || "An unknown error occurred."}
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+    );
   }
 
-  async function handleHoverOut(_p: Participant) {
-    setHovered(null);
-    if (pinnedPreview) return;
-    if ((window as any).__trip_map_clearPreview) (window as any).__trip_map_clearPreview();
-  }
-
-  useEffect(() => {
-    async function drawMain() {
-      if (!destination || !mainOrigin) return;
-      try {
-        setStatus("Drawing main route...");
-        const originStr = `${mainOrigin.lng},${mainOrigin.lat}`;
-        const destStr = `${destination.lng},${destination.lat}`;
-        const { data: routeData } = await fetchJson(`/api/route?origin=${encodeURIComponent(originStr)}&destination=${encodeURIComponent(destStr)}`);
-        const geojson = normalizeRouteToGeoJSON(routeData);
-        if (geojson && (window as any).__trip_map_drawRoute) (window as any).__trip_map_drawRoute(geojson);
-        setStatus("Main route drawn");
-      } catch (e) {
-        console.warn("drawMain error", e);
-        setStatus("Could not draw main route");
-      }
-    }
-    drawMain();
-  }, [destination, mainOrigin]);
-
-  function getEtaText(id: string) {
-    try {
-      const sm = poller?.getSmoothed ? (poller as any).getSmoothed(id) : undefined;
-      if (!sm) return "—";
-      const s = Math.round(sm.etaSeconds);
-      if (s < 60) return `${s}s`;
-      return `${Math.round(s / 60)}m`;
-    } catch (e) {
-      return "—";
-    }
-  }
-
-  function onDestinationSelect(s: any) {
-    const lat = s.lat ?? s.latitude ?? null;
-    const lng = s.lng ?? s.lon ?? s.longitude ?? null;
-    if (typeof lat !== "number" || typeof lng !== "number") {
-      console.warn("Destination selection shape unexpected", s);
-      return;
-    }
-    setDestination({ lat, lng });
-  }
-
-  if(userLoading) {
-    return <div className="flex h-screen w-full items-center justify-center">Loading User...</div>
-  }
-
-  if (!tripDoc) {
-     return <div className="flex h-screen w-full items-center justify-center">
-        {tripStatus === 'connecting' && 'Connecting to trip...'}
-        {tripStatus === 'offline' && 'Could not connect to trip. Displaying offline data.'}
-        {tripStatus === 'error' && `Error: ${tripError?.message}`}
-        {!tripStatus && 'Loading trip...'}
-     </div>;
-  }
-
-  const currentUserId = user?.uid || 'dev-user';
+  const handleCopy = () => {
+    navigator.clipboard.writeText(tripId);
+    toast({ title: "Trip code copied!" });
+  };
+  
+  const currentUserForExpenses = participants.map(p => ({id: p.id, name: p.name}));
 
   return (
-    <div style={{ padding: 12 }}>
-      <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 12 }}>
-        <div style={{ flex: 1 }}>
-          <DestinationSearch onSelect={onDestinationSelect} />
-        </div>
-
-        <div style={{ display: "flex", gap: 8, alignItems: "center", padding: 8, border: "1px solid #eee", borderRadius: 8 }}>
-          <div style={{ fontSize: 12, color: "#666" }}>Origin</div>
-          <select value={originMode} onChange={(e) => setOriginMode(e.target.value as any)}>
-            <option value="pickup">Pickup</option>
-            <option value="device">My device</option>
-            <option value="participant">Participant</option>
-          </select>
-          {originMode === "participant" && (
-            <select value={participantOriginId ?? ""} onChange={(e) => setParticipantOriginId(e.target.value || null)}>
-              <option value="">— select —</option>
-              {participants.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-            </select>
-          )}
-        </div>
-
-        <div style={{ minWidth: 220 }}>
-          <label style={{ marginRight: 8 }}>
-            Live
-            <input type="checkbox" checked={live} onChange={(e) => setLive(e.target.checked)} style={{ marginLeft: 8 }} />
-          </label>
-          <div style={{ fontSize: 12, color: "#666" }}>{status}</div>
-        </div>
-      </div>
-
-      <div style={{ display: "flex", gap: 12 }}>
-        <div style={{ flex: 1 }}>
-          <div style={{ height: 600 }}>
-             <TomTomMapController 
-                participants={liveParticipants.reduce((acc, p) => ({...acc, [p.id]: p }), {})}
-                destination={destination}
-                computeRoutes={live}
-             />
-          </div>
-        </div>
-
-        <aside style={{ width: 420, borderLeft: "1px solid #eee", paddingLeft: 12, display: "flex", flexDirection: "column", gap: 12 }}>
+    <div className="min-h-screen bg-gray-50/50 dark:bg-black/50">
+      <header className="sticky top-0 z-30 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+        <div className="container flex h-16 items-center justify-between gap-4">
           <div>
-            <h3 style={{ margin: 0 }}>Participants</h3>
-            <div style={{ marginTop: 8 }}>
-              {participants.map(p => {
-                const isHovered = hovered === p.id;
-                const isPinned = pinnedPreview === p.id;
-                return (
-                  <div key={p.id}
-                    onMouseEnter={() => handleHoverIn(p as Participant)}
-                    onMouseLeave={() => handleHoverOut(p as Participant)}
-                    onClick={() => togglePinPreview(p as Participant)}
-                    style={{
-                      display: "flex", alignItems: "center", gap: 12, padding: 10,
-                      borderRadius: 8, background: isPinned ? "#eef6ff" : (isHovered ? "#fbfbff" : "white"),
-                      cursor: "pointer", border: isPinned ? "1px solid #5b9cff" : "1px solid #f3f3f3"
-                    }}>
-                    <div style={{ width: 48, height: 48, borderRadius: 24, overflow: "hidden", background: "#ddd" }} />
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontWeight: 700 }}>{p.name} {isPinned ? "📌" : ""}</div>
-                      <div style={{ color: "#666" }}>{p.mode}</div>
-                    </div>
-                    <div style={{ textAlign: "right" }}>
-                      <div style={{ fontWeight: 700 }}>{getEtaText(p.id)}</div>
-                      <div style={{ fontSize: 12, color: "#666" }}>ETA</div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
+            <h1 className="text-xl font-bold font-heading">
+              {tripDoc.name || "Trip Room"}
+            </h1>
+            <p className="text-sm text-muted-foreground">
+              to {tripDoc.destination?.name}
+            </p>
+          </div>
+          <div className="flex items-center gap-4">
+            <TripCodeBadge code={tripId} onCopy={handleCopy} />
+            <ComputeToggle value={computeRoutes} onChange={setComputeRoutes} />
+          </div>
+        </div>
+      </header>
+
+      <main className="container py-6">
+        <div className="grid-background grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="lg:col-span-2">
+            <Card className="overflow-hidden">
+              <div className="h-[65vh] min-h-[500px]">
+                <TomTomMapController
+                  participants={liveParticipants.reduce(
+                    (acc, p) => ({ ...acc, [p.id]: p }),
+                    {}
+                  )}
+                  origin={tripDoc.pickup}
+                  destination={tripDoc.destination}
+                  computeRoutes={computeRoutes}
+                  onMapReady={setMapInstance}
+                  onRouteReady={(coords, summary) => {
+                    setRouteCoords(coords);
+                    setRouteSummary(summary);
+                  }}
+                >
+                  {mapInstance && (
+                    <RoutePolyline
+                      map={mapInstance}
+                      routeCoords={routeCoords}
+                      etaMinutes={
+                        routeSummary.travelTimeSeconds
+                          ? routeSummary.travelTimeSeconds / 60
+                          : undefined
+                      }
+                    />
+                  )}
+                </TomTomMapController>
+              </div>
+            </Card>
           </div>
 
-          <div style={{ display: "flex", gap: 8 }}>
-            <button onClick={() => setTab("chat")} style={{ padding: "6px 10px", borderRadius: 6, background: tab === "chat" ? "#eef6ff" : "white", border: "1px solid #eee" }}>Chat</button>
-            <button onClick={() => setTab("expenses")} style={{ padding: "6px 10px", borderRadius: 6, background: tab === "expenses" ? "#eef6ff" : "white", border: "1px solid #eee" }}>Expenses</button>
-          </div>
-
-          <div style={{ flex: 1, minHeight: 220 }}>
-            {tab === "chat" ? <ChatPanel tripId={tripId} currentUserId={currentUserId} /> : <ExpensePanel tripId={tripId} currentUserId={currentUserId} />}
-          </div>
-        </aside>
-      </div>
+          <aside>
+            <Card>
+              <Tabs defaultValue="participants" className="w-full">
+                <TabsList className="grid w-full grid-cols-3">
+                  <TabsTrigger value="participants">Participants</TabsTrigger>
+                  <TabsTrigger value="chat">Chat</TabsTrigger>
+                  <TabsTrigger value="expenses">Expenses</TabsTrigger>
+                </TabsList>
+                <TabsContent value="participants">
+                  <CardContent className="pt-4">
+                    <ParticipantsList participants={participantDataForUI} />
+                  </CardContent>
+                </TabsContent>
+                <TabsContent value="chat" className="h-[65vh] min-h-[500px]">
+                   <ChatBox messages={chatMessagesForUI} onSendMessage={sendMessage} />
+                </TabsContent>
+                <TabsContent value="expenses">
+                  <CardContent className="pt-4">
+                    <ExpenseCalculator 
+                        participants={currentUserForExpenses}
+                        expenses={expenseDataForUI}
+                        onAddExpenseAction={(newExpense) => addExpense({ paidBy: user!.uid, amount: newExpense.amount, label: newExpense.label})}
+                    />
+                  </CardContent>
+                </TabsContent>
+              </Tabs>
+            </Card>
+          </aside>
+        </div>
+      </main>
     </div>
   );
 }
 
-function normalizeRouteToGeoJSON(tomtomData: any) {
-  try {
-    const route = tomtomData?.routes?.[0];
-    if (!route) return null;
-    const coords: [number, number][] = [];
-    if (route.legs && Array.isArray(route.legs)) {
-      for (const leg of route.legs) {
-        if (Array.isArray(leg.points)) {
-          for (const p of leg.points) {
-            const lat = p.latitude ?? p.lat ?? (Array.isArray(p) ? p[1] : undefined);
-            const lon = p.longitude ?? p.lon ?? (Array.isArray(p) ? p[0] : undefined);
-            if (typeof lat === "number" && typeof lon === "number") coords.push([lon, lat]);
-          }
-        }
-      }
-    }
-    if (coords.length === 0 && route.geometry && Array.isArray(route.geometry) && Array.isArray(route.geometry[0])) {
-      for (const c of route.geometry) coords.push([c[0], c[1]]);
-    }
-    if (coords.length === 0) return null;
-    return {
-      type: "FeatureCollection",
-      features: [{ type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: coords } }],
-    };
-  } catch (e) {
-    console.error("normalizeRouteToGeoJSON error", e);
-    return null;
-  }
-}

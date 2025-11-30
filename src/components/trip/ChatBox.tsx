@@ -68,7 +68,7 @@ export function ChatBox({ messages, onSendMessage }: ChatBoxProps) {
                   <p className="text-sm font-medium">{isYou ? 'You' : msg.userName}</p>
                   <p className="text-sm">{msg.text}</p>
                    <p className="text-xs opacity-70 mt-1 text-right">
-                    {msg.timestamp}
+                    {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                   </p>
                 </div>
               </div>

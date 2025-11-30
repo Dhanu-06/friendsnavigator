@@ -12,7 +12,9 @@ export default function ExpensePanel({ tripId, currentUserId = "dev-user" }: { t
   async function loadExpenses() {
     try {
       const res = await fetchJson(`/api/trips/${encodeURIComponent(tripId)}/expenses`);
-      setItems(res.data || []);
+      if (res.data) {
+        setItems(res.data);
+      }
     } catch (e) {
       console.warn("loadExpenses error", e);
     }
@@ -38,7 +40,7 @@ export default function ExpensePanel({ tripId, currentUserId = "dev-user" }: { t
         setItems(prev => [...prev, { id: res.id ?? "temp-" + Date.now(), ...payload, ts: Date.now() }]);
         setTimeout(loadExpenses, 300);
       } else {
-        alert("Expense saving failed: " + (res.error ?? "unknown"));
+        alert("Expense saving failed: " + (res.data.error ?? "unknown"));
       }
     } catch (e: any) {
       console.warn("addExpense error", e);

@@ -13,7 +13,9 @@ export default function ChatPanel({ tripId, currentUserId = "dev-user" }: { trip
   async function loadMessages() {
     try {
       const res = await fetchJson(`/api/trips/${encodeURIComponent(tripId)}/messages`);
-      setMessages(res.data || []);
+      if (res.data) {
+        setMessages(res.data);
+      }
       // scroll to bottom
       setTimeout(() => listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: "smooth" }), 50);
     } catch (e) {
@@ -40,7 +42,7 @@ export default function ChatPanel({ tripId, currentUserId = "dev-user" }: { trip
         setMessages(prev => [...prev, { id: res.id ?? "temp-" + Date.now(), ...payload, ts: Date.now() }]);
         setTimeout(loadMessages, 300);
       } else {
-        alert("Message not sent: " + (res.error ?? "unknown"));
+        alert("Message not sent: " + (res.data.error ?? "unknown"));
       }
     } catch (e: any) {
       console.warn("sendMessage error", e);
