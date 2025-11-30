@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
@@ -42,13 +43,6 @@ export default function TripRoomClient({ tripId }: { tripId: string }) {
   const [routeCoords, setRouteCoords] = useState<RouteCoords>([]);
   const [routeSummary, setRouteSummary] = useState<{ travelTimeSeconds: number | null, distanceMeters: number | null;}>({ travelTimeSeconds: null, distanceMeters: null});
 
-  const { participants, messages, expenses, tripDoc, status, sendMessage, addExpense } = useTripRealtime(tripId, authUser ? {
-    id: authUser.uid,
-    name: authUser.displayName || authUser.email || 'Anonymous',
-    avatarUrl: authUser.photoURL || `https://i.pravatar.cc/150?u=${authUser.uid}`,
-    mode: tripDoc?.mode || 'car',
-  }: null);
-
   const currentUser = useMemo(() => {
     if (!authUser) return null;
     return {
@@ -57,6 +51,8 @@ export default function TripRoomClient({ tripId }: { tripId: string }) {
       avatarUrl: authUser.photoURL || `https://i.pravatar.cc/150?u=${authUser.uid}`,
     };
   }, [authUser]);
+
+  const { participants, messages, expenses, tripDoc, status, sendMessage, addExpense } = useTripRealtime(tripId, currentUser);
 
   useLiveLocation(tripId, currentUser, { enableWatch: true, watchIntervalMs: 5000 });
 
