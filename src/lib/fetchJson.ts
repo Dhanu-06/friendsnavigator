@@ -3,9 +3,6 @@ export async function fetchJson(input: RequestInfo | URL, init?: RequestInit) {
   const text = await res.text();
   let data: any;
   try { data = text ? JSON.parse(text) : {}; } catch { data = text; }
-  if (!res.ok) {
-    const message = (data && data.error) ? data.error : data;
-    throw new Error(typeof message === "string" ? message : JSON.stringify(message));
-  }
-  return data;
+  // Unlike the original, we will return the data and ok status, not throw
+  return { ok: res.ok, status: res.status, data };
 }

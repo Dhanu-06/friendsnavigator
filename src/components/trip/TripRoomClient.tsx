@@ -9,6 +9,8 @@ import useTripRealtime from "@/hooks/useTripRealtime";
 import { useUser } from "@/firebase/auth/use-user";
 import TomTomMapController from "./TomTomMapController";
 import useLiveLocation from "@/hooks/useLiveLocation";
+import ChatPanel from "./ChatPanel.client";
+import ExpensePanel from "./ExpensePanel.client";
 
 const TripMap = dynamic(() => import("../TripMap.client"), { ssr: false });
 
@@ -17,6 +19,7 @@ type Participant = { id: string; name: string; vehicle?: string; lng: number; la
 export default function TripRoomClient({ tripId }: { tripId: string }) {
   // UI state
   const [live, setLive] = useState(true);
+  const [tab, setTab] = useState<"chat" | "expenses">("chat");
   const { user, loading: userLoading } = useUser();
   
   const { 
@@ -86,7 +89,6 @@ export default function TripRoomClient({ tripId }: { tripId: string }) {
   const [, setTick] = useState(0);
   useEffect(() => {
     let cleanup: (() => void) | undefined;
-
     if (poller && typeof (poller as any).subscribe === "function") {
       cleanup = (poller as any).subscribe(() => setTick(t => t + 1));
     } else if (poller && typeof (poller as any).getSmoothed === "function") {
@@ -95,8 +97,8 @@ export default function TripRoomClient({ tripId }: { tripId: string }) {
     } else {
       console.warn("[TripRoomClient] no poller available for subscribe; UI may not auto-update ETAs");
     }
-
     return () => { try { cleanup && cleanup(); } catch {} };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [poller]);
 
 
@@ -206,6 +208,8 @@ export default function TripRoomClient({ tripId }: { tripId: string }) {
      </div>;
   }
 
+  const currentUserId = user?.uid || 'dev-user';
+
   return (
     <div style={{ padding: 12 }}>
       <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 12 }}>
@@ -248,41 +252,45 @@ export default function TripRoomClient({ tripId }: { tripId: string }) {
           </div>
         </div>
 
-        <aside style={{ width: 380, borderLeft: "1px solid #eee", paddingLeft: 12 }}>
-          <h3>Participants</h3>
-          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-            {participants.map(p => {
-              const isHovered = hovered === p.id;
-              const isPinned = pinnedPreview === p.id;
-              return (
-                <div key={p.id}
-                  onMouseEnter={() => handleHoverIn(p as Participant)}
-                  onMouseLeave={() => handleHoverOut(p as Participant)}
-                  onClick={() => togglePinPreview(p as Participant)}
-                  style={{
-                    display: "flex", alignItems: "center", gap: 12, padding: 10,
-                    borderRadius: 8, background: isPinned ? "#eef6ff" : (isHovered ? "#fbfbff" : "white"),
-                    cursor: "pointer", border: isPinned ? "1px solid #5b9cff" : "1px solid #f3f3f3"
-                  }}>
-                  <div style={{ width: 48, height: 48, borderRadius: 24, overflow: "hidden", background: "#ddd" }} />
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontWeight: 700 }}>{p.name} {isPinned ? "📌" : ""}</div>
-                    <div style={{ color: "#666" }}>{p.mode}</div>
+        <aside style={{ width: 420, borderLeft: "1px solid #eee", paddingLeft: 12, display: "flex", flexDirection: "column", gap: 12 }}>
+          <div>
+            <h3 style={{ margin: 0 }}>Participants</h3>
+            <div style={{ marginTop: 8 }}>
+              {participants.map(p => {
+                const isHovered = hovered === p.id;
+                const isPinned = pinnedPreview === p.id;
+                return (
+                  <div key={p.id}
+                    onMouseEnter={() => handleHoverIn(p as Participant)}
+                    onMouseLeave={() => handleHoverOut(p as Participant)}
+                    onClick={() => togglePinPreview(p as Participant)}
+                    style={{
+                      display: "flex", alignItems: "center", gap: 12, padding: 10,
+                      borderRadius: 8, background: isPinned ? "#eef6ff" : (isHovered ? "#fbfbff" : "white"),
+                      cursor: "pointer", border: isPinned ? "1px solid #5b9cff" : "1px solid #f3f3f3"
+                    }}>
+                    <div style={{ width: 48, height: 48, borderRadius: 24, overflow: "hidden", background: "#ddd" }} />
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontWeight: 700 }}>{p.name} {isPinned ? "📌" : ""}</div>
+                      <div style={{ color: "#666" }}>{p.mode}</div>
+                    </div>
+                    <div style={{ textAlign: "right" }}>
+                      <div style={{ fontWeight: 700 }}>{getEtaText(p.id)}</div>
+                      <div style={{ fontSize: 12, color: "#666" }}>ETA</div>
+                    </div>
                   </div>
-                  <div style={{ textAlign: "right" }}>
-                    <div style={{ fontWeight: 700 }}>{getEtaText(p.id)}</div>
-                    <div style={{ fontSize: 12, color: "#666" }}>ETA</div>
-                  </div>
-                </div>
-              );
-            })}
+                );
+              })}
+            </div>
           </div>
 
-          <div style={{ marginTop: 14 }}>
-            <button onClick={() => {
-              setPinnedPreview(null);
-              if ((window as any).__trip_map_clearPreview) (window as any).__trip_map_clearPreview();
-            }}>Clear pinned preview</button>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button onClick={() => setTab("chat")} style={{ padding: "6px 10px", borderRadius: 6, background: tab === "chat" ? "#eef6ff" : "white", border: "1px solid #eee" }}>Chat</button>
+            <button onClick={() => setTab("expenses")} style={{ padding: "6px 10px", borderRadius: 6, background: tab === "expenses" ? "#eef6ff" : "white", border: "1px solid #eee" }}>Expenses</button>
+          </div>
+
+          <div style={{ flex: 1, minHeight: 220 }}>
+            {tab === "chat" ? <ChatPanel tripId={tripId} currentUserId={currentUserId} /> : <ExpensePanel tripId={tripId} currentUserId={currentUserId} />}
           </div>
         </aside>
       </div>
