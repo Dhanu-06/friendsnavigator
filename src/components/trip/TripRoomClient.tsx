@@ -1,9 +1,9 @@
-// src/components/TripRoomClient.tsx
+// src/components/trip/TripRoomClient.tsx
 "use client";
 import React, { useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import useEtaPoller from "../../hooks/useEtaPoller";
-import { fetchJson } from "@/lib/fetchJson";
+import { fetchJson } from "../../lib/fetchJson";
 import DestinationSearch from "../DestinationSearch.client";
 import useTripRealtime from "@/hooks/useTripRealtime";
 import { useUser } from "@/firebase/auth/use-user";
@@ -92,6 +92,8 @@ export default function TripRoomClient({ tripId }: { tripId: string }) {
     } else if (poller && typeof (poller as any).getSmoothed === "function") {
       const iv = window.setInterval(() => setTick(t => t + 1), 1500);
       cleanup = () => window.clearInterval(iv);
+    } else {
+      console.warn("[TripRoomClient] no poller available for subscribe; UI may not auto-update ETAs");
     }
 
     return () => { try { cleanup && cleanup(); } catch {} };
