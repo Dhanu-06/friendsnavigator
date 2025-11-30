@@ -1,4 +1,3 @@
-
 // app/trips/[tripId]/page.tsx
 import React from "react";
 import TripActions from "@/components/TripActions.client";

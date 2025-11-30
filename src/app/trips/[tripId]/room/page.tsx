@@ -1,3 +1,4 @@
+
 // app/trips/[tripId]/room/page.tsx
 import dynamic from "next/dynamic";
 import React from "react";

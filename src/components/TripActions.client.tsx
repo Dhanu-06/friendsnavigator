@@ -1,3 +1,4 @@
+
 // src/components/TripActions.client.tsx
 "use client";
 import React, { useState } from "react";

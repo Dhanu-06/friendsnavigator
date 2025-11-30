@@ -1,3 +1,4 @@
+
 // src/components/trip/ExpensePanel.client.tsx
 "use client";
 import React, { useEffect, useState } from "react";

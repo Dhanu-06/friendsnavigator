@@ -1,3 +1,4 @@
+
 // src/components/trip/ChatPanel.client.tsx
 "use client";
 import React, { useEffect, useState, useRef } from "react";
