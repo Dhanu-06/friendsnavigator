@@ -109,7 +109,7 @@ export default function JoinTripPreview({
         <CardContent className="space-y-4">
            <div className="flex items-center gap-4 text-sm text-muted-foreground">
               <MapPin className="h-4 w-4" />
-              <span>{trip.destination.name}</span>
+              <span>{trip.destination?.name}</span>
             </div>
            <div className="flex items-center gap-4 text-sm text-muted-foreground">
              <Calendar className="h-4 w-4" />
