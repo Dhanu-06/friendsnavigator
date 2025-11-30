@@ -68,7 +68,8 @@ export async function publishParticipantLocation(tripId: string, user: User, coo
             requestResourceData: payload,
         });
         errorEmitter.emit('permission-error', permissionError);
-        throw err;
+        // DO NOT re-throw the error, as it's an unhandled rejection that crashes the app.
+        // The emitter will surface it to the dev overlay without crashing.
   });
 }
 
