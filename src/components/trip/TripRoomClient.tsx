@@ -1,60 +1,49 @@
-
-// src/components/trip/TripRoomClient.tsx
+// src/components/TripRoomClient.tsx
 "use client";
 import React, { useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
-import { useUser } from "@/firebase/auth/use-user";
-import useTripRealtime from "@/hooks/useTripRealtime";
-import useLiveLocation from "@/hooks/useLiveLocation";
-import useEtaPoller from "@/hooks/useEtaPoller";
-import { fetchJson } from "@/lib/fetchJson";
+import useEtaPoller from "../../hooks/useEtaPoller";
+import { fetchJson } from "../../lib/fetchJson";
 import DestinationSearch from "../DestinationSearch.client";
-import { ParticipantsList } from "./ParticipantsList";
-import { ChatBox } from "./ChatBox";
-import { ExpenseCalculator } from "./ExpenseCalculator";
-import { TripCodeBadge } from "./TripCodeBadge";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Map, MessageSquare, IndianRupee } from "lucide-react";
+import useTripRealtime from "@/hooks/useTripRealtime";
+import { useUser } from "@/firebase/auth/use-user";
 import TomTomMapController from "./TomTomMapController";
-import RoutePolyline from "../RoutePolyline";
-import ComputeToggle from "./ComputeToggle";
-import RideButton from "./RideButton";
-import { LatLng } from "@/utils/rideLinks";
+import useLiveLocation from "@/hooks/useLiveLocation";
 
 const TripMap = dynamic(() => import("../TripMap.client"), { ssr: false });
 
-type Participant = { id: string; name: string; avatarUrl?: string; lng?: number; lat?: number; coords?: {lat: number, lng: number}, mode?: string, eta?: string, status?: 'On the way' | 'Reached' | 'Delayed' };
-
+type Participant = { id: string; name: string; vehicle?: string; lng: number; lat: number; };
 
 export default function TripRoomClient({ tripId }: { tripId: string }) {
-  const { user } = useUser();
-  const { tripDoc, participants, messages, expenses, status: tripStatus, sendMessage, addExpense } = useTripRealtime(tripId, user);
-  
   // UI state
-  const [computeRoutes, setComputeRoutes] = useState(true);
-  const [destination, setDestination] = useState<{ lat: number; lng: number, name?: string } | null>(tripDoc?.destination || null);
+  const [live, setLive] = useState(true);
+  const { user, loading: userLoading } = useUser();
+  
+  const { 
+    tripDoc, 
+    participants, 
+    status: tripStatus,
+    error: tripError,
+  } = useTripRealtime(tripId, user);
+
+  const { lastPosition } = useLiveLocation(tripId, user ? { id: user.uid, name: user.displayName || 'Me' } : null, { enableWatch: live });
+
+
+  const [destination, setDestination] = useState<{ lat: number; lng: number, name?: string } | null>(null);
+  const [status, setStatus] = useState("");
   const [hovered, setHovered] = useState<string | null>(null);
   const [pinnedPreview, setPinnedPreview] = useState<string | null>(null);
   const [originMode, setOriginMode] = useState<"pickup" | "device" | "participant">("pickup");
   const [participantOriginId, setParticipantOriginId] = useState<string | null>(null);
-  const [routeCoords, setRouteCoords] = useState<any[]>([]);
 
-  // Enable live location for the current user
-  const { lastPosition } = useLiveLocation(tripId, user ? { id: user.uid, name: user.displayName || 'Anonymous', avatarUrl: user.photoURL } : null, { enableWatch: true });
-  
-  const liveParticipants = useMemo(() => {
-    return participants.map(p => ({
-        id: p.id,
-        name: p.name,
-        avatarUrl: p.avatarUrl,
-        lat: p.coords?.lat,
-        lng: p.coords?.lng,
-        mode: p.mode || "Car",
-        eta: "--",
-        status: "On the way",
-    })).filter(p => p.lat && p.lng);
-  }, [participants]);
+  useEffect(() => {
+    if (tripDoc?.destination) {
+      setDestination(tripDoc.destination);
+    }
+  }, [tripDoc]);
 
+
+  // compute origin position based on origin mode
   function computeOrigin() {
     if (originMode === "pickup") {
       return tripDoc?.pickup || null;
@@ -62,179 +51,271 @@ export default function TripRoomClient({ tripId }: { tripId: string }) {
       return lastPosition || null;
     } else if (originMode === "participant") {
       if (!participantOriginId) return null;
-      const p = liveParticipants.find(x => x.id === participantOriginId);
-      if (!p) return null;
-      return { lat: p.lat!, lng: p.lng! };
+      const p = participants.find(x => x.id === participantOriginId);
+      if (!p || !p.coords) return null;
+      return { lat: p.coords.lat, lng: p.coords.lng };
     }
     return null;
   }
-
+  
   const mainOrigin = computeOrigin();
 
+  const liveParticipants = useMemo(() => {
+    return participants.filter(p => p.coords?.lat && p.coords?.lng).map(p => ({
+        id: p.id,
+        lat: p.coords!.lat,
+        lng: p.coords!.lng,
+        name: p.name,
+    }));
+  }, [participants]);
+
+  // Poller: participants feed into polling; destination used as target
   const poller = useEtaPoller({
-    participants: liveParticipants.map(p => ({ id: p.id, lat: p.lat!, lng: p.lng! })),
+    participants: liveParticipants,
     destination,
-    live: computeRoutes,
+    live,
+    intervalMs: 5000,
+    assumedSpeedKmph: 35,
   });
 
-  const [etas, setEtas] = useState<Record<string, { etaSeconds: number }>>({});
-  const [, setTick] = useState(0);
-
-    useEffect(() => {
-        let cleanupFn: (() => void) | undefined;
-        // The poller returns a `getSmoothed` method but not subscribe.
-        // We use a timer to ask it for updates and trigger re-renders.
-        const pollerObj = poller as any;
-        if (typeof pollerObj?.getSmoothed === 'function') {
-            const iv = setInterval(() => {
-            const newEtas: Record<string, { etaSeconds: number }> = {};
-            for (const p of liveParticipants) {
-                const smoothed = pollerObj.getSmoothed(p.id);
-                if (smoothed) {
-                newEtas[p.id] = { etaSeconds: smoothed.etaSeconds };
-                }
-            }
-            setEtas(newEtas);
-            setTick(t => t + 1);
-            }, 1500);
-            cleanupFn = () => clearInterval(iv);
-        } else {
-            console.warn("[TripRoomClient] poller not ready for subscribe; UI will not auto-update ETAs");
-        }
-
-        return () => {
-            try { cleanupFn && cleanupFn(); } catch (e) { /* ignore */ }
-        };
-    }, [poller, liveParticipants]);
-
-
-  const participantsWithEta = useMemo(() => {
-    return liveParticipants.map(p => ({
-      ...p,
-      eta: etas[p.id] ? `${Math.round(etas[p.id].etaSeconds / 60)} min` : '--'
-    }));
-  }, [liveParticipants, etas]);
-
-
   useEffect(() => {
-    if(tripDoc?.destination) {
-        setDestination(tripDoc.destination);
+    setStatus(live ? "Live ON" : "Live OFF");
+  }, [live]);
+
+  // SAFE subscribe / re-render mechanism
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    let cleanup: (() => void) | undefined;
+
+    if (poller && typeof (poller as any).subscribe === "function") {
+      cleanup = (poller as any).subscribe(() => setTick(t => t + 1));
+    } else if (poller && typeof (poller as any).getSmoothed === "function") {
+      const iv = window.setInterval(() => setTick(t => t + 1), 1500);
+      cleanup = () => window.clearInterval(iv);
+    } else {
     }
-  }, [tripDoc?.destination]);
+
+    return () => { try { cleanup && cleanup(); } catch {} };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [poller]);
 
 
-  // When destination or main origin changes, draw main route from chosen origin to destination
+  async function togglePinPreview(p: Participant) {
+    try {
+      if (pinnedPreview === p.id) {
+        setPinnedPreview(null);
+        if ((window as any).__trip_map_clearPreview) (window as any).__trip_map_clearPreview();
+        setStatus(`Unpinned preview for ${p.name}`);
+        return;
+      }
+      setPinnedPreview(p.id);
+      if (!p.coords) return;
+      const origin = `${p.coords.lng},${p.coords.lat}`;
+      if (!destination) {
+        setStatus("Select a destination first to generate preview.");
+        return;
+      }
+      const destStr = `${destination.lng},${destination.lat}`;
+      setStatus(`Pinning preview for ${p.name}...`);
+      const { data: routeData } = await fetchJson(`/api/route?origin=${encodeURIComponent(origin)}&destination=${encodeURIComponent(destStr)}`);
+      const geojson = normalizeRouteToGeoJSON(routeData);
+      if (geojson && (window as any).__trip_map_drawPreview) {
+        (window as any).__trip_map_drawPreview(geojson);
+      }
+      setStatus(`Pinned preview for ${p.name}`);
+    } catch (e: any) {
+      console.error("pin preview error", e);
+      setStatus("Pin preview failed: " + (e?.message ?? ""));
+    }
+  }
+
+  async function handleHoverIn(p: Participant) {
+    setHovered(p.id);
+    if (pinnedPreview === p.id) return;
+    if (!destination || !p.coords) return;
+    try {
+      const origin = `${p.coords.lng},${p.coords.lat}`;
+      const destStr = `${destination.lng},${destination.lat}`;
+      const { data: routeData } = await fetchJson(`/api/route?origin=${encodeURIComponent(origin)}&destination=${encodeURIComponent(destStr)}`);
+      const geojson = normalizeRouteToGeoJSON(routeData);
+      if (geojson && (window as any).__trip_map_drawPreview) {
+        (window as any).__trip_map_drawPreview(geojson);
+      }
+    } catch (e) {
+      console.warn("hover preview error", e);
+    }
+  }
+
+  async function handleHoverOut(_p: Participant) {
+    setHovered(null);
+    if (pinnedPreview) return;
+    if ((window as any).__trip_map_clearPreview) (window as any).__trip_map_clearPreview();
+  }
+
   useEffect(() => {
     async function drawMain() {
       if (!destination || !mainOrigin) return;
-      if (!computeRoutes) {
-          setRouteCoords([]);
-          return;
-      }
       try {
+        setStatus("Drawing main route...");
         const originStr = `${mainOrigin.lng},${mainOrigin.lat}`;
         const destStr = `${destination.lng},${destination.lat}`;
-        const r = await fetchJson(`/api/route?origin=${encodeURIComponent(originStr)}&destination=${encodeURIComponent(destStr)}`);
-        
-        const route = r?.geojson?.coordinates?.map((c: [number, number]) => ({
-            longitude: c[0],
-            latitude: c[1]
-        }));
-        setRouteCoords(route || []);
+        const { data: routeData } = await fetchJson(`/api/route?origin=${encodeURIComponent(originStr)}&destination=${encodeURIComponent(destStr)}`);
+        const geojson = normalizeRouteToGeoJSON(routeData);
+        if (geojson && (window as any).__trip_map_drawRoute) (window as any).__trip_map_drawRoute(geojson);
+        setStatus("Main route drawn");
       } catch (e) {
         console.warn("drawMain error", e);
+        setStatus("Could not draw main route");
       }
     }
     drawMain();
-  }, [destination, mainOrigin, computeRoutes]);
+  }, [destination, mainOrigin]);
 
-  const [map, setMap] = useState<any>(null);
+  function getEtaText(id: string) {
+    try {
+      const sm = poller?.getSmoothed ? (poller as any).getSmoothed(id) : undefined;
+      if (!sm) return "—";
+      const s = Math.round(sm.etaSeconds);
+      if (s < 60) return `${s}s`;
+      return `${Math.round(s / 60)}m`;
+    } catch (e) {
+      return "—";
+    }
+  }
 
-  const handleCopy = () => {
-    navigator.clipboard.writeText(tripId);
+  function onDestinationSelect(s: any) {
+    const lat = s.lat ?? s.latitude ?? null;
+    const lng = s.lng ?? s.lon ?? s.longitude ?? null;
+    if (typeof lat !== "number" || typeof lng !== "number") {
+      console.warn("Destination selection shape unexpected", s);
+      return;
+    }
+    setDestination({ lat, lng });
+  }
+
+  if(userLoading) {
+    return <div className="flex h-screen w-full items-center justify-center">Loading User...</div>
+  }
+
+  if (!tripDoc) {
+     return <div className="flex h-screen w-full items-center justify-center">
+        {tripStatus === 'connecting' && 'Connecting to trip...'}
+        {tripStatus === 'offline' && 'Could not connect to trip. Displaying offline data.'}
+        {tripStatus === 'error' && `Error: ${tripError?.message}`}
+        {!tripStatus && 'Loading trip...'}
+     </div>;
   }
 
   return (
-    <div className="flex h-screen w-screen bg-background">
-      {/* Sidebar */}
-      <aside className="w-[380px] border-r flex flex-col">
-        <div className="p-4 border-b">
-          <h2 className="text-xl font-bold font-heading">{tripDoc?.name || 'Loading Trip...'}</h2>
-          <p className="text-sm text-muted-foreground">{destination?.name || tripDoc?.destination?.name || 'No destination set'}</p>
-           <div className="mt-4">
-            <TripCodeBadge code={tripId} onCopy={handleCopy} />
+    <div style={{ padding: 12 }}>
+      <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 12 }}>
+        <div style={{ flex: 1 }}>
+          <DestinationSearch onSelect={onDestinationSelect} />
+        </div>
+
+        <div style={{ display: "flex", gap: 8, alignItems: "center", padding: 8, border: "1px solid #eee", borderRadius: 8 }}>
+          <div style={{ fontSize: 12, color: "#666" }}>Origin</div>
+          <select value={originMode} onChange={(e) => setOriginMode(e.target.value as any)}>
+            <option value="pickup">Pickup</option>
+            <option value="device">My device</option>
+            <option value="participant">Participant</option>
+          </select>
+          {originMode === "participant" && (
+            <select value={participantOriginId ?? ""} onChange={(e) => setParticipantOriginId(e.target.value || null)}>
+              <option value="">— select —</option>
+              {participants.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+          )}
+        </div>
+
+        <div style={{ minWidth: 220 }}>
+          <label style={{ marginRight: 8 }}>
+            Live
+            <input type="checkbox" checked={live} onChange={(e) => setLive(e.target.checked)} style={{ marginLeft: 8 }} />
+          </label>
+          <div style={{ fontSize: 12, color: "#666" }}>{status}</div>
+        </div>
+      </div>
+
+      <div style={{ display: "flex", gap: 12 }}>
+        <div style={{ flex: 1 }}>
+          <div style={{ height: 600 }}>
+             <TomTomMapController 
+                participants={liveParticipants.reduce((acc, p) => ({...acc, [p.id]: p }), {})}
+                destination={destination}
+                computeRoutes={live}
+             />
           </div>
         </div>
 
-        <Tabs defaultValue="participants" className="flex-1 flex flex-col">
-            <TabsList className="grid w-full grid-cols-3 m-2">
-                <TabsTrigger value="participants"><Map className="w-4 h-4 mr-1"/>Participants</TabsTrigger>
-                <TabsTrigger value="chat"><MessageSquare className="w-4 h-4 mr-1"/>Chat</TabsTrigger>
-                <TabsTrigger value="expenses"><IndianRupee className="w-4 h-4 mr-1"/>Expenses</TabsTrigger>
-            </TabsList>
-            <TabsContent value="participants" className="flex-1 p-4">
-                <ParticipantsList participants={participantsWithEta} />
-            </TabsContent>
-            <TabsContent value="chat" className="flex-1">
-                <ChatBox 
-                    messages={(messages as any[]).map(m => ({...m, timestamp: m.createdAt ? new Date(m.createdAt).toLocaleTimeString() : '...'}))} 
-                    onSendMessage={sendMessage}
-                />
-            </TabsContent>
-            <TabsContent value="expenses" className="flex-1 p-4">
-                <ExpenseCalculator 
-                    participants={participants} 
-                    expenses={expenses}
-                    onAddExpenseAction={addExpense}
-                />
-            </TabsContent>
-        </Tabs>
-      </aside>
-
-      {/* Main Content */}
-      <main className="flex-1 flex flex-col">
-        <div className="p-4 border-b flex items-center justify-between gap-4">
-            <div className="flex-1">
-                <DestinationSearch onSelect={(s) => setDestination({ lat: s.lat, lng: s.lng, name: s.label })} />
-            </div>
-            <div className="flex items-center gap-4">
-                <div className="flex items-center gap-2 text-sm">
-                    <span className="font-medium text-muted-foreground">Origin:</span>
-                    <select value={originMode} onChange={(e) => setOriginMode(e.target.value as any)} className="p-1 rounded-md border bg-transparent text-sm">
-                        <option value="pickup">Pickup</option>
-                        <option value="device">My Device</option>
-                        <option value="participant">Participant</option>
-                    </select>
-                    {originMode === "participant" && (
-                        <select value={participantOriginId ?? ""} onChange={(e) => setParticipantOriginId(e.target.value || null)} className="p-1 rounded-md border bg-transparent text-sm">
-                        <option value="">— select —</option>
-                        {liveParticipants.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-                        </select>
-                    )}
+        <aside style={{ width: 380, borderLeft: "1px solid #eee", paddingLeft: 12 }}>
+          <h3>Participants</h3>
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            {participants.map(p => {
+              const isHovered = hovered === p.id;
+              const isPinned = pinnedPreview === p.id;
+              return (
+                <div key={p.id}
+                  onMouseEnter={() => handleHoverIn(p)}
+                  onMouseLeave={() => handleHoverOut(p)}
+                  onClick={() => togglePinPreview(p)}
+                  style={{
+                    display: "flex", alignItems: "center", gap: 12, padding: 10,
+                    borderRadius: 8, background: isPinned ? "#eef6ff" : (isHovered ? "#fbfbff" : "white"),
+                    cursor: "pointer", border: isPinned ? "1px solid #5b9cff" : "1px solid #f3f3f3"
+                  }}>
+                  <div style={{ width: 48, height: 48, borderRadius: 24, overflow: "hidden", background: "#ddd" }} />
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontWeight: 700 }}>{p.name} {isPinned ? "📌" : ""}</div>
+                    <div style={{ color: "#666" }}>{p.mode}</div>
+                  </div>
+                  <div style={{ textAlign: "right" }}>
+                    <div style={{ fontWeight: 700 }}>{getEtaText(p.id)}</div>
+                    <div style={{ fontSize: 12, color: "#666" }}>ETA</div>
+                  </div>
                 </div>
-                 <ComputeToggle
-                    value={computeRoutes}
-                    onChange={setComputeRoutes}
-                  />
-            </div>
-        </div>
-        <div className="flex-1 relative">
-            <TomTomMapController 
-                participants={liveParticipants.reduce((acc, p) => ({...acc, [p.id]: p }), {})}
-                computeRoutes={computeRoutes}
-                onMapReady={setMap}
-                destination={destination}
-                onRouteReady={(coords) => setRouteCoords(coords)}
-                origin={mainOrigin}
-            />
-            {map && computeRoutes && routeCoords.length > 0 && <RoutePolyline map={map} routeCoords={routeCoords} />}
-            <div className="absolute bottom-4 right-4 bg-background/80 backdrop-blur-sm p-2 rounded-lg shadow-lg flex gap-2">
-                <RideButton provider="ola" pickup={lastPosition as LatLng} drop={destination as LatLng} label="Book Ola"/>
-                <RideButton provider="uber" pickup={lastPosition as LatLng} drop={destination as LatLng} label="Book Uber"/>
-                <RideButton provider="rapido" pickup={lastPosition as LatLng} drop={destination as LatLng} label="Book Rapido"/>
-            </div>
-        </div>
-      </main>
+              );
+            })}
+          </div>
+
+          <div style={{ marginTop: 14 }}>
+            <button onClick={() => {
+              setPinnedPreview(null);
+              if ((window as any).__trip_map_clearPreview) (window as any).__trip_map_clearPreview();
+            }}>Clear pinned preview</button>
+          </div>
+        </aside>
+      </div>
     </div>
   );
+}
+
+function normalizeRouteToGeoJSON(tomtomData: any) {
+  try {
+    const route = tomtomData?.routes?.[0];
+    if (!route) return null;
+    const coords: [number, number][] = [];
+    if (route.legs && Array.isArray(route.legs)) {
+      for (const leg of route.legs) {
+        if (Array.isArray(leg.points)) {
+          for (const p of leg.points) {
+            const lat = p.latitude ?? p.lat ?? (Array.isArray(p) ? p[1] : undefined);
+            const lon = p.longitude ?? p.lon ?? (Array.isArray(p) ? p[0] : undefined);
+            if (typeof lat === "number" && typeof lon === "number") coords.push([lon, lat]);
+          }
+        }
+      }
+    }
+    if (coords.length === 0 && route.geometry && Array.isArray(route.geometry) && Array.isArray(route.geometry[0])) {
+      for (const c of route.geometry) coords.push([c[0], c[1]]);
+    }
+    if (coords.length === 0) return null;
+    return {
+      type: "FeatureCollection",
+      features: [{ type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: coords } }],
+    };
+  } catch (e) {
+    console.error("normalizeRouteToGeoJSON error", e);
+    return null;
+  }
 }
