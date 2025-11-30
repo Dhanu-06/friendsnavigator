@@ -105,12 +105,20 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'origin and destination required { lat, lng }' }, { status: 400 });
     }
 
+     if (!TOMTOM_KEY) {
+      console.error("[api/route] TOMTOM_KEY is not configured.");
+      return NextResponse.json({ error: "Routing service is not configured on the server." }, { status: 500 });
+    }
+
     const url = buildTomtomUrl({ lat: Number(origin.lat), lng: Number(origin.lng) }, { lat: Number(destination.lat), lng: Number(destination.lng) }, options);
     const r = await fetch(url);
+
     if (!r.ok) {
-      const txt = await r.text().catch(() => null);
+      const txt = await r.text().catch(() => 'Failed to read error body');
+      console.error(`[api/route] TomTom API error: ${r.status}`, txt);
       return NextResponse.json({ error: 'TomTom routing API error', status: r.status, body: txt }, { status: 502 });
     }
+
     const json = await r.json();
     const normalized = normalizeTomTomGeometry(json);
 
@@ -131,8 +139,9 @@ export async function POST(req: Request) {
     }
 
     const geojson = { type: 'LineString', coordinates: normalized.coordinates };
-    return NextResponse.json({ ok: true, geojson, summary: { distanceMeters, travelTimeSeconds }, raw: json });
+    return NextResponse.json({ ok: true, geojson, summary: { distanceMeters, travelTimeSeconds }});
   } catch (e: any) {
-    return NextResponse.json({ error: 'server error', message: e?.message || String(e) }, { status: 500 });
+    console.error("[api/route] General Error:", e);
+    return NextResponse.json({ error: 'Server error processing route request', message: e?.message || String(e) }, { status: 500 });
   }
 }

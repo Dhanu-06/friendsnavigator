@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useEffect, useRef, useState } from 'react';
@@ -28,7 +29,6 @@ type Props = {
 const TOMTOM_CSS = 'https://api.tomtom.com/maps-sdk-for-web/cdn/6.x/6.25.0/maps/maps.css';
 const TOMTOM_JS = 'https://api.tomtom.com/maps-sdk-for-web/cdn/6.x/6.25.0/maps/maps-web.min.js';
 
-
 // Use client-visible key only for map tiles. Prefer server-side key for routing (we call /api/route).
 const TOMTOM_KEY_CLIENT = (process.env.NEXT_PUBLIC_TOMTOM_KEY as string) || '';
 
@@ -50,14 +50,21 @@ export default function TomTomMapController({
   const markersRef = useRef<Map<string, any>>(new Map());
   const rafRef = useRef<Map<string, number>>(new Map());
   const pollTimerRef = useRef<number | null>(null);
-  const [isReady, setIsReady] = useState(false);
+  const [sdkReady, setSdkReady] = useState(false);
+  const [mapInitError, setMapInitError] = useState<string | null>(null);
+
 
   /* --------------------------
      Load TomTom SDK (client-only)
      -------------------------- */
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    if (!containerRef.current) return;
+
+    const win = window as any;
+    if (win.tt) {
+        setSdkReady(true);
+        return;
+    }
 
     // Inject CSS
     if (!document.querySelector('link[data-tt-css]')) {
@@ -67,19 +74,13 @@ export default function TomTomMapController({
       link.setAttribute('data-tt-css', '1');
       document.head.appendChild(link);
     }
-
-    // If SDK already present, init immediately
-    const win = window as any;
-    if (win.tt) {
-      initMap();
-      return;
-    }
-
+    
     // If script already injected, wait for load
     const existingScript = document.querySelector('script[data-tt-sdk]');
     if (existingScript) {
-      existingScript.addEventListener('load', initMap);
-      return;
+      const loadListener = () => setSdkReady(true);
+      existingScript.addEventListener('load', loadListener);
+      return () => existingScript.removeEventListener('load', loadListener);
     }
 
     // Inject script
@@ -87,31 +88,31 @@ export default function TomTomMapController({
     s.src = TOMTOM_JS;
     s.async = true;
     s.setAttribute('data-tt-sdk', '1');
-    s.onload = () => initMap();
+    s.onload = () => setSdkReady(true);
     s.onerror = () => {
       console.error('Failed to load TomTom SDK script');
+      setMapInitError('Failed to load TomTom SDK script. Check your internet connection and ad-blocker.');
     };
     document.body.appendChild(s);
 
-    return () => {
-      // nothing to cleanup for injected script or css (we keep them)
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [containerRef.current]);
+  }, []);
 
   /* --------------------------
      Initialize map
      -------------------------- */
-  function initMap() {
-    if (!containerRef.current) return;
+  useEffect(() => {
+    if (!sdkReady || !containerRef.current || mapRef.current) return;
+    
     const tt = (window as any).tt;
     if (!tt) {
-      console.error('TomTom SDK not available on window.tt');
+      console.error('TomTom SDK not available on window.tt, though sdkReady was true.');
       return;
     }
-    if (mapRef.current) return; // already initialized
 
     try {
+      if (!TOMTOM_KEY_CLIENT) {
+        throw new Error("NEXT_PUBLIC_TOMTOM_KEY is not set. The map cannot be initialized.");
+      }
       const map = tt.map({
         key: TOMTOM_KEY_CLIENT,
         container: containerRef.current,
@@ -120,12 +121,13 @@ export default function TomTomMapController({
       });
       map.addControl(new tt.NavigationControl());
       mapRef.current = map;
-      setIsReady(true);
       if (onMapReady) onMapReady(map);
-    } catch (e) {
+    } catch (e: any) {
       console.error('TomTom map init error', e);
+      setMapInitError(e.message || 'An unknown error occurred during map initialization.');
     }
-  }
+  }, [sdkReady, initialCenter.lat, initialCenter.lng, initialZoom, onMapReady]);
+
 
   /* --------------------------
      Clean up map & markers on unmount
@@ -155,8 +157,9 @@ export default function TomTomMapController({
      Manage markers: create / update / remove, and animate movement
      -------------------------- */
   useEffect(() => {
-    if (!isReady || !mapRef.current) return;
+    if (!mapRef.current) return;
     const map = mapRef.current;
+    const tt = (window as any).tt;
 
     // Build set of existing ids and new ids
     const existingIds = new Set(markersRef.current.keys());
@@ -184,14 +187,14 @@ export default function TomTomMapController({
         el.innerText = (p.name || '?').slice(0, 2).toUpperCase();
 
         // Create marker & popup
-        const marker = new (window as any).tt.Marker({ element: el }).setLngLat([p.lng, p.lat]).addTo(map);
+        const marker = new tt.Marker({ element: el }).setLngLat([p.lng, p.lat]).addTo(map);
 
         const popupEl = document.createElement('div');
         popupEl.style.padding = '6px 8px';
         popupEl.style.fontSize = '13px';
         popupEl.innerText = p.name || 'Unknown';
 
-        const popup = new (window as any).tt.Popup({ offset: 10 }).setDOMContent(popupEl);
+        const popup = new tt.Popup({ offset: 10 }).setDOMContent(popupEl);
         marker.setPopup(popup);
 
         markersRef.current.set(p.id, {
@@ -272,20 +275,20 @@ export default function TomTomMapController({
     }
 
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [participants, isReady, followId]);
+  }, [participants, sdkReady, followId]);
 
   /* --------------------------
      ETA polling (calls /api/matrix-eta every 5s when computeRoutes === true)
      -------------------------- */
   useEffect(() => {
-    if (!isReady) return;
+    if (!sdkReady || !mapRef.current) return;
 
     if (computeRoutes) startPolling();
     else stopPolling();
 
     return () => stopPolling();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [computeRoutes, isReady, participants]);
+  }, [computeRoutes, sdkReady, JSON.stringify(participants)]);
 
   function startPolling() {
     if (pollTimerRef.current) return;
@@ -304,14 +307,17 @@ export default function TomTomMapController({
   async function fetchAndDispatchETAs() {
     try {
       const list = Object.values(participants).map((p) => ({ id: p.id, lat: p.lat, lng: p.lng }));
-      if (list.length === 0) return;
+      if (list.length === 0 || !destination) return;
 
       const res = await fetch('/api/matrix-eta', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ participants: list }),
+        body: JSON.stringify({ participants: list, destination }),
       });
-      if (!res.ok) return;
+      if (!res.ok) {
+        console.error("Failed to fetch ETAs:", res.status, await res.text());
+        return;
+      }
       const json = await res.json().catch(() => null);
       if (!json) return;
 
@@ -339,7 +345,7 @@ export default function TomTomMapController({
         } catch (e) {}
       });
     } catch (e) {
-      // swallow errors silently
+      console.error("Error in fetchAndDispatchETAs:", e);
     }
   }
 
@@ -356,14 +362,14 @@ export default function TomTomMapController({
      Route fetching (but not drawing)
      -------------------------- */
   useEffect(() => {
-    if (!isReady || !mapRef.current) return;
+    if (!sdkReady || !mapRef.current) return;
     if (!computeRoutes || !origin || !destination) {
       if (onRouteReady) onRouteReady([], { travelTimeSeconds: null, distanceMeters: null });
       return;
     }
     fetchRoute(origin, destination);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isReady, computeRoutes, origin?.lat, origin?.lng, destination?.lat, destination?.lng]);
+  }, [sdkReady, computeRoutes, origin?.lat, origin?.lng, destination?.lat, destination?.lng]);
 
   async function fetchRoute(originArg: { lat: number; lng: number }, destinationArg: { lat: number; lng: number }) {
     try {
@@ -373,11 +379,13 @@ export default function TomTomMapController({
         body: JSON.stringify({ origin: originArg, destination: destinationArg }),
       });
       if (!res.ok) {
+        console.error("Failed to fetch route:", res.status, await res.text());
         if (onRouteReady) onRouteReady([], { travelTimeSeconds: null, distanceMeters: null });
         return;
       }
       const json = await res.json().catch(() => null);
-      if (!json || !json.geojson || !Array.isArray((json.geojson as any).coordinates)) {
+      if (!json || !json.ok || !json.geojson || !Array.isArray((json.geojson as any).coordinates)) {
+        console.warn("Invalid route response from API", json);
         if (onRouteReady) onRouteReady([], { travelTimeSeconds: null, distanceMeters: null });
         return;
       }
@@ -395,6 +403,7 @@ export default function TomTomMapController({
       if (onRouteReady) onRouteReady(routeCoords, summary);
 
     } catch (e) {
+      console.error("Error in fetchRoute:", e);
       if (onRouteReady) onRouteReady([], { travelTimeSeconds: null, distanceMeters: null });
     }
   }
@@ -403,23 +412,34 @@ export default function TomTomMapController({
   /* --------------------------
      Render
      -------------------------- */
+  const showLoading = !sdkReady && !mapInitError;
+  const showError = !!mapInitError;
+
   return (
-    <div className={className} style={{ width: '100%', height: '100%', position: 'relative' }}>
-      <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
-      {!isReady && (
+    <div className={className} style={{ width: '100%', height: '100%', position: 'relative', background: '#f0f2f5' }}>
+      <div ref={containerRef} style={{ width: '100%', height: '100%', opacity: showError ? 0.3 : 1 }} />
+      {showLoading && (
         <div
           style={{
-            position: 'absolute',
-            left: 12,
-            top: 12,
-            background: 'rgba(255,255,255,0.92)',
-            padding: '6px 8px',
-            borderRadius: 6,
-            fontSize: 12,
-            boxShadow: '0 1px 4px rgba(0,0,0,0.12)',
+            position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
+            background: 'rgba(255,255,255,0.8)',
+            fontSize: 14, color: '#333'
           }}
         >
           Loading map...
+        </div>
+      )}
+       {showError && (
+        <div
+          style={{
+            position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
+            padding: 20, textAlign: 'center'
+          }}
+        >
+           <div style={{ background: '#fff', padding: '16px 24px', borderRadius: 8, boxShadow: '0 2px 10px rgba(0,0,0,0.1)' }}>
+                <h3 style={{ margin: 0, color: '#d9534f' }}>Map Error</h3>
+                <p style={{ margin: '8px 0 0', fontSize: 13, color: '#555' }}>{mapInitError}</p>
+           </div>
         </div>
       )}
     </div>

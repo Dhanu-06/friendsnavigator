@@ -1,3 +1,4 @@
+
 import { NextResponse } from 'next/server';
 
 function haversineDistance(lat1: number, lon1: number, lat2: number, lon2: number) {
@@ -13,27 +14,35 @@ function haversineDistance(lat1: number, lon1: number, lat2: number, lon2: numbe
 }
 
 export async function POST(req: Request) {
-  const body = await req.json().catch(() => ({}));
-  const participants = Array.isArray(body.participants) ? body.participants : [];
+  try {
+    const body = await req.json().catch(() => ({}));
+    const participants = Array.isArray(body.participants) ? body.participants : [];
 
-  if (!participants || participants.length === 0) {
-    return NextResponse.json({ etas: {} });
+    if (!participants || participants.length === 0) {
+      return NextResponse.json({ etas: {} });
+    }
+
+    const dest = body.destination ?? { lat: 12.9716, lng: 77.5946 };
+    const speedMetersPerSec = 13.89; // Roughly 50 km/h
+
+    const etas: Record<string, { etaSeconds: number; distanceMeters: number }> = {};
+
+    participants.forEach((p: any) => {
+      const lat = Number(p.lat);
+      const lng = Number(p.lng);
+      if (Number.isNaN(lat) || Number.isNaN(lng)) return;
+
+      const dist = Math.round(haversineDistance(lat, lng, dest.lat, dest.lng));
+      const etaSeconds = Math.round(dist / speedMetersPerSec);
+      etas[p.id] = { etaSeconds, distanceMeters: dist };
+    });
+
+    return NextResponse.json({ etas });
+  } catch (err: any) {
+    console.error('[api/matrix-eta] Error:', err);
+    return NextResponse.json(
+        { error: 'Failed to compute ETAs', details: err.message },
+        { status: 500 }
+    );
   }
-
-  const dest = { lat: 12.9716, lng: 77.5946 };
-  const speedMetersPerSec = 13.89;
-
-  const etas: Record<string, { etaSeconds: number; distanceMeters: number }> = {};
-
-  participants.forEach((p: any) => {
-    const lat = Number(p.lat);
-    const lng = Number(p.lng);
-    if (Number.isNaN(lat) || Number.isNaN(lng)) return;
-
-    const dist = Math.round(haversineDistance(lat, lng, dest.lat, dest.lng));
-    const etaSeconds = Math.round(dist / speedMetersPerSec);
-    etas[p.id] = { etaSeconds, distanceMeters: dist };
-  });
-
-  return NextResponse.json({ etas });
 }

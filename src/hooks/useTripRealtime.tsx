@@ -1,6 +1,7 @@
+
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState }from 'react';
 import {
   addDoc,
   collection,
@@ -53,7 +54,7 @@ export type TripDoc = {
     messages: Message[];
     expenses: Expense[];
     pickup?: { lat: number, lng: number };
-    destination?: { lat: number, lng: number };
+    destination?: { lat: number, lng: number, name?: string };
     mode?: string;
 };
 
@@ -61,7 +62,7 @@ const useEmulator = process.env.NEXT_PUBLIC_USE_FIREBASE_EMULATOR === 'true';
 
 export default function useTripRealtime(
   tripId: string,
-  currentUser: { id: string; name: string; avatarUrl: string, mode?: string } | null
+  currentUser: { id: string; name: string; avatarUrl: string; mode?: string } | null
 ) {
   const [tripDoc, setTripDoc] = useState<TripDoc | null>(null);
   const [participants, setParticipants] = useState<Participant[]>([]);
@@ -107,7 +108,7 @@ export default function useTripRealtime(
             id: currentUser.id,
             name: currentUser.name,
             avatarUrl: currentUser.avatarUrl,
-            mode: currentUser.mode,
+            mode: currentUser.mode || tripDoc?.mode,
         };
         const trip = getTripLocal(tripId) || { id: tripId, participants: [], messages: [], expenses: [] };
         const existingParticipantIndex = trip.participants.findIndex((par: Participant) => par.id === p.id);
@@ -217,7 +218,7 @@ export default function useTripRealtime(
       unsubs.current.forEach((u) => u());
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tripId, currentUser?.id]);
+  }, [tripId, currentUser?.id, tripDoc?.mode]);
 
   const sendMessage = async (text: string) => {
     if (!tripId || !currentUser) return;
@@ -246,6 +247,7 @@ export default function useTripRealtime(
             ...payload,
             createdAt: serverTimestamp(),
         }).catch(async (err) => {
+            console.error("sendMessage Firestore error:", err);
             const permissionError = new FirestorePermissionError({
                 path: collRef.path,
                 operation: 'create',
@@ -272,6 +274,7 @@ export default function useTripRealtime(
     if ((status === 'online' || useEmulator) && firestoreRef.current) {
         const collRef = collection(firestoreRef.current, 'trips', tripId, 'expenses');
         addDoc(collRef, payload).catch(async (err) => {
+            console.error("addExpense Firestore error:", err);
             const permissionError = new FirestorePermissionError({
                 path: collRef.path,
                 operation: 'create',
