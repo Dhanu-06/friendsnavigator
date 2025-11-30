@@ -3,7 +3,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import useEtaPoller from "../../hooks/useEtaPoller";
-import { fetchJson } from "../../lib/fetchJson";
+import { fetchJson } from "@/lib/fetchJson";
 import DestinationSearch from "../DestinationSearch.client";
 import useTripRealtime from "@/hooks/useTripRealtime";
 import { useUser } from "@/firebase/auth/use-user";
@@ -92,11 +92,9 @@ export default function TripRoomClient({ tripId }: { tripId: string }) {
     } else if (poller && typeof (poller as any).getSmoothed === "function") {
       const iv = window.setInterval(() => setTick(t => t + 1), 1500);
       cleanup = () => window.clearInterval(iv);
-    } else {
     }
 
     return () => { try { cleanup && cleanup(); } catch {} };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [poller]);
 
 
@@ -256,9 +254,9 @@ export default function TripRoomClient({ tripId }: { tripId: string }) {
               const isPinned = pinnedPreview === p.id;
               return (
                 <div key={p.id}
-                  onMouseEnter={() => handleHoverIn(p)}
-                  onMouseLeave={() => handleHoverOut(p)}
-                  onClick={() => togglePinPreview(p)}
+                  onMouseEnter={() => handleHoverIn(p as Participant)}
+                  onMouseLeave={() => handleHoverOut(p as Participant)}
+                  onClick={() => togglePinPreview(p as Participant)}
                   style={{
                     display: "flex", alignItems: "center", gap: 12, padding: 10,
                     borderRadius: 8, background: isPinned ? "#eef6ff" : (isHovered ? "#fbfbff" : "white"),
