@@ -1,15 +1,17 @@
+// src/components/TripMap.client.tsx
 "use client";
 import React, { useEffect, useRef } from "react";
 import useTomTomLoader from "../lib/useTomTomLoader";
 
 type Props = {
-  center?: [number, number]; // [lng, lat]
+  center?: [number, number];
   zoom?: number;
 };
 
 export default function TripMap({ center = [77.5946, 12.9716], zoom = 12 }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<any>(null);
+  const routeLayerIdRef = useRef<string | null>(null);
   const { loaded, error } = useTomTomLoader();
 
   useEffect(() => {
@@ -20,7 +22,7 @@ export default function TripMap({ center = [77.5946, 12.9716], zoom = 12 }: Prop
       console.error("TomTom SDK loaded but window.tt undefined");
       return;
     }
-    if (mapRef.current) return; // already initialized
+    if (mapRef.current) return;
 
     try {
       const tt = (window as any).tt;
@@ -36,11 +38,83 @@ export default function TripMap({ center = [77.5946, 12.9716], zoom = 12 }: Prop
         zoom,
       });
 
-      // add one marker to confirm display
       new tt.Marker().setLngLat(center).addTo(mapRef.current);
 
-      // optionally expose to window for debugging
+      // attach helper to window for other code to call
       (window as any).__trip_map = mapRef.current;
+
+      // draw geojson route: clears previous route and draws new
+      (window as any).__trip_map_drawRoute = function drawRoute(geojson: any) {
+        try {
+          if (!mapRef.current) return;
+          const map = mapRef.current;
+          const sourceId = "trip-route-source";
+          const layerIdPrimary = "trip-route-line-primary";
+          const layerIdSecondary = "trip-route-line-secondary";
+
+          // remove previous layers & source if present
+          try {
+            if (map.getLayer(layerIdPrimary)) map.removeLayer(layerIdPrimary);
+            if (map.getLayer(layerIdSecondary)) map.removeLayer(layerIdSecondary);
+          } catch (e) {}
+          try {
+            if (map.getSource(sourceId)) map.removeSource(sourceId);
+          } catch (e) {}
+
+          // add new source
+          map.addSource(sourceId, {
+            type: "geojson",
+            data: geojson,
+          });
+
+          // primary route line (solid)
+          map.addLayer({
+            id: layerIdPrimary,
+            type: "line",
+            source: sourceId,
+            layout: {
+              "line-join": "round",
+              "line-cap": "round"
+            },
+            paint: {
+              "line-color": "#2b8cff",
+              "line-width": 5,
+            },
+          });
+
+          // optional secondary (dashed) style, same data but dashed
+          map.addLayer({
+            id: layerIdSecondary,
+            type: "line",
+            source: sourceId,
+            layout: {
+              "line-join": "round",
+              "line-cap": "round"
+            },
+            paint: {
+              "line-color": "#9fbfff",
+              "line-width": 3,
+              "line-dasharray": [2, 2]
+            },
+          });
+
+          // fit bounds to geometry
+          try {
+            const coords = geojson?.features?.[0]?.geometry?.coordinates;
+            if (coords && coords.length) {
+              const lats = coords.map((c: any) => c[1]);
+              const lngs = coords.map((c: any) => c[0]);
+              const minLat = Math.min(...lats), maxLat = Math.max(...lats);
+              const minLng = Math.min(...lngs), maxLng = Math.max(...lngs);
+              map.fitBounds([[minLng, minLat], [maxLng, maxLat]], { padding: 60 });
+            }
+          } catch (e) {
+            console.warn("fitBounds error", e);
+          }
+        } catch (e) {
+          console.error("drawRoute error", e);
+        }
+      };
     } catch (err) {
       console.error("TomTom map init failed:", err);
     }
@@ -50,6 +124,8 @@ export default function TripMap({ center = [77.5946, 12.9716], zoom = 12 }: Prop
         if (mapRef.current) {
           mapRef.current.remove();
           mapRef.current = null;
+          (window as any).__trip_map = undefined;
+          (window as any).__trip_map_drawRoute = undefined;
         }
       } catch (e) {
         console.warn("Map cleanup error", e);

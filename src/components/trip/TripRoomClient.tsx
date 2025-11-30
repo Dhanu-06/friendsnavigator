@@ -1,246 +1,139 @@
+// src/components/TripRoomClient.tsx
+"use client";
+import React, { useCallback, useState } from "react";
+import dynamic from "next/dynamic";
+import { fetchJson } from "@/lib/fetchJson";
+import DestinationSearch from "@/components/DestinationSearch.client";
 
-'use client';
-
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import dynamic from 'next/dynamic';
-
-import useReverseGeocode from '@/hooks/useReverseGeocode';
-import { Card } from '../ui/card';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
-import { IndianRupee, MessageSquare, Users } from 'lucide-react';
-import { TripCodeBadge } from './TripCodeBadge';
-import { useToast } from '../ui/use-toast';
-import ComputeToggle from './ComputeToggle';
-import { ParticipantsList } from './ParticipantsList';
-import type { Participant as ParticipantsListPerson } from './ParticipantsList';
-import { ChatBox } from './ChatBox';
-import { ExpenseCalculator } from './ExpenseCalculator';
-import useTripRealtime from '@/hooks/useTripRealtime';
-import useLiveLocation from '@/hooks/useLiveLocation';
-import { useUser } from '@/firebase/auth/use-user';
-import RideButton from './RideButton';
-import RoutePolyline from '@/components/RoutePolyline';
-import TomTomMapController from './TomTomMapController';
-
-
-type Participant = {
-  id: string;
-  name?: string;
-  lat: number;
-  lng: number;
-  mode?: string;
-};
-
-type RouteCoords = Array<{ latitude: number; longitude: number }>;
-
+const TripMap = dynamic(() => import("../TripMap.client"), { ssr: false });
 
 export default function TripRoomClient({ tripId }: { tripId: string }) {
-  const { toast } = useToast();
-  const { user: authUser, loading: authLoading } = useUser();
-  const [mapInstance, setMapInstance] = useState<any>(null);
-  const [routeCoords, setRouteCoords] = useState<RouteCoords>([]);
-  const [routeSummary, setRouteSummary] = useState<{ travelTimeSeconds: number | null, distanceMeters: number | null;}>({ travelTimeSeconds: null, distanceMeters: null});
+  const [status, setStatus] = useState<string>("");
 
-  const {
-    participants,
-    messages,
-    expenses,
-    tripDoc,
-    status,
-    sendMessage,
-    addExpense,
-  } = useTripRealtime(tripId, authUser);
-
-  const currentUser = useMemo(() => {
-    if (!authUser || !tripDoc) return null;
-    return {
-      id: authUser.uid,
-      name: authUser.displayName || authUser.email || 'Anonymous',
-      avatarUrl: authUser.photoURL || `https://i.pravatar.cc/150?u=${authUser.uid}`,
-      mode: tripDoc?.participants.find(p => p.id === authUser.uid)?.mode || 'car',
-    };
-  }, [authUser, tripDoc]);
-
-  useLiveLocation(tripId, currentUser, { enableWatch: true, watchIntervalMs: 5000 });
-
-  const participantsById = useMemo(() => {
-    const m: Record<string, Participant> = {};
-    (participants || []).forEach((p) => {
-      if (!p || !p.id || !p.coords?.lat || !p.coords?.lng) return;
-      m[p.id] = {id: p.id, name: p.name, lat: p.coords.lat, lng: p.coords.lng, mode: p.mode};
-    });
-    return m;
-  }, [participants]);
-
-
-  // ETAs per participant from TomTom matrix polling
-  const [participantETAs, setParticipantETAs] = useState<Record<string, { etaSeconds: number; distanceMeters: number }>>({});
-
-  // Follow a participant when user clicks Follow
-  const [followId, setFollowId] = useState<string | null>(null);
-
-  // origin/destination deduced from Firestore doc (if present) or fallbacks
-  const originState = useMemo(() => {
-      if (tripDoc?.pickup) return tripDoc.pickup;
-      const firstParticipant = participants.find(p => p.coords);
-      if (firstParticipant?.coords) return { lat: firstParticipant.coords.lat, lng: firstParticipant.coords.lng };
-      return null;
-  }, [tripDoc, participants]);
-
-  const destinationState = useMemo(() => tripDoc?.destination ?? null, [tripDoc]);
-
-
-  const [computeRoutesEnabled, setComputeRoutesEnabled] = useState<boolean>(() => {
+  // normalize TomTom route response -> GeoJSON LineString FeatureCollection
+  function normalizeRouteToGeoJSON(tomtomData: any) {
     try {
-      if (typeof window === 'undefined') return true;
-      const raw = window.localStorage.getItem('trip_compute_routes_enabled_v1');
-      return raw === null ? true : raw === '1';
-    } catch {
-      return true;
+      // TomTom calculateRoute returns geometry in routes[0].legs[*].points or routes[0].routeGeometry? Adapt as needed
+      const route = tomtomData?.routes?.[0];
+      if (!route) return null;
+
+      // try route.geometry if present as polyline or points
+      let coords: [number, number][] = [];
+
+      // 1) route.legs[].points format (array of {latitude, longitude}) OR {points: [{lat,lon}]}
+      if (route.legs && route.legs.length) {
+        for (const leg of route.legs) {
+          if (leg.points && leg.points.length) {
+            for (const p of leg.points) {
+              // some TomTom versions use lat/lon or latitude/longitude
+              const lat = p.latitude ?? p.lat ?? p[1];
+              const lon = p.longitude ?? p.lon ?? p[0];
+              if (typeof lon === "number" && typeof lat === "number") {
+                coords.push([lon, lat]);
+              }
+            }
+          } else if (leg.points && typeof leg.points === "string") {
+            // ignore
+          }
+        }
+      }
+
+      // 2) route.geometry might contain an encoded polyline or raw coordinates depending on your API call
+      if (coords.length === 0 && route.geometry) {
+        // if geometry is an array of coordinate arrays
+        if (Array.isArray(route.geometry) && Array.isArray(route.geometry[0])) {
+          coords = route.geometry.map((c: any) => [c[0], c[1]]);
+        } else if (typeof route.geometry === "string") {
+          // encoded polyline — try decode (TomTom uses flexible encodings). We will attempt simple polyline decode if needed.
+          // You may need to adapt this based on the format your API returns.
+          // For now fall back to null
+          console.warn("Encoded geometry returned; cannot decode automatically in this simple helper.");
+        }
+      }
+
+      if (!coords || coords.length === 0) return null;
+
+      const geojson = {
+        type: "FeatureCollection",
+        features: [
+          {
+            type: "Feature",
+            properties: {},
+            geometry: {
+              type: "LineString",
+              coordinates: coords,
+            },
+          },
+        ],
+      };
+      return geojson;
+    } catch (e) {
+      console.error("normalize error", e);
+      return null;
     }
-  });
-
-
-  // Reverse geocode friendly names (hook will cache and call /api/reverse-geocode)
-  const pickupLat = originState?.lat ?? 12.9716;
-  const pickupLng = originState?.lng ?? 77.5946;
-  const destLat = destinationState?.lat ?? 12.9750;
-  const destLng = destinationState?.lng ?? 77.5990;
-
-  const { name: pickupName, shortName: pickupShort } = useReverseGeocode(pickupLat, pickupLng);
-  const { name: destName, shortName: destShort } = useReverseGeocode(destLat, destLng);
-  
-  const handleCopyCode = () => {
-    navigator.clipboard.writeText(tripId);
-    toast({
-        title: "Copied!",
-        description: "Trip code copied to clipboard."
-    });
   }
 
-  const augmentedParticipants: ParticipantsListPerson[] = useMemo(() => {
-    return participants.map(p => ({
-        id: p.id,
-        name: p.name || 'Anonymous',
-        avatarUrl: p.avatarUrl || `https://i.pravatar.cc/150?u=${p.id}`,
-        mode: p.mode || '...',
-        eta: participantETAs[p.id] ? `${Math.round(participantETAs[p.id].etaSeconds / 60)} min` : '...',
-        status: 'On the way' as const,
-        coords: p.coords ? { lat: p.coords.lat, lon: p.coords.lng } : undefined,
-    }));
-  }, [participants, participantETAs]);
-  
+  async function onDestinationSelected({ label, lng, lat }: { label: string; lng: number; lat: number }) {
+    try {
+      setStatus(`Selected: ${label} — querying route...`);
+      // Example origin: center of map or pick a real participant origin
+      const origin = "77.5946,12.9716"; // TODO: replace with real origin
+      const dest = `${lng},${lat}`;
+      const data = await fetchJson(`/api/route?origin=${encodeURIComponent(origin)}&destination=${encodeURIComponent(dest)}`);
+      console.log("Route data", data);
+      if (data?.geojson) {
+        const geojson = { type: 'FeatureCollection', features: [{ type: 'Feature', properties: {}, geometry: data.geojson }]};
+        if (geojson && (window as any).__trip_map_drawRoute) {
+          (window as any).__trip_map_drawRoute(geojson);
+          setStatus(`Route drawn to ${label}`);
+        } else {
+          setStatus("Could not build route geometry to draw");
+        }
+      } else {
+        setStatus("Route API returned no data");
+      }
 
-  const onParticipantETA = useCallback((id: string, data: { etaSeconds: number | null; distanceMeters: number | null; }) => {
-    if (data.etaSeconds === null) return;
-    setParticipantETAs(prev => ({
-        ...prev,
-        [id]: { etaSeconds: data.etaSeconds!, distanceMeters: data.distanceMeters! },
-    }));
-  }, []);
-
-  const onRouteReady = useCallback((coords: RouteCoords, summary: { travelTimeSeconds: number | null; distanceMeters: number | null; }) => {
-      setRouteCoords(coords);
-      setRouteSummary(summary);
-  }, []);
-
-
-  if (authLoading) {
-    return <div className="flex h-screen w-full items-center justify-center">Loading user...</div>;
+      // Trigger ETA refresh (simple example: call matrix endpoint single origin->dest)
+      try {
+        const origins = origin;
+        const destinations = dest;
+        const mat = await fetchJson(`/api/matrix-eta?origins=${encodeURIComponent(origins)}&destinations=${encodeURIComponent(destinations)}`);
+        console.log("Matrix ETA response", mat);
+        // Use mat.data to update UI/popups — adapt as your app needs
+        if (mat?.data) {
+          setStatus((s) => s + " · ETA refreshed");
+        }
+      } catch (e) {
+        console.warn("Matrix ETA error", e);
+      }
+    } catch (err: any) {
+      console.error("Selection/route error", err);
+      setStatus("Error fetching route: " + err.message);
+    }
   }
-  
-  if (!currentUser) {
-    // This should ideally redirect to login
-    return <div className="flex h-screen w-full items-center justify-center">Please log in to view this trip.</div>;
-  }
-  
+
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-3 xl:grid-cols-4 h-screen bg-muted/20">
-      <div className="lg:col-span-2 xl:col-span-3 h-full relative">
-        <TomTomMapController 
-            participants={participantsById}
-            onMapReady={setMapInstance}
-            onParticipantETA={onParticipantETA}
-            onRouteReady={onRouteReady}
-            computeRoutes={computeRoutesEnabled}
-            origin={originState}
-            destination={destinationState}
-            followId={followId}
-            initialCenter={destinationState ? {lat: destinationState.lat, lng: destinationState.lng} : undefined}
-        />
-        {mapInstance && computeRoutesEnabled && routeCoords.length > 0 && (
-            <RoutePolyline 
-                map={mapInstance}
-                routeCoords={routeCoords}
-                etaMinutes={routeSummary.travelTimeSeconds ? routeSummary.travelTimeSeconds / 60 : undefined}
-            />
-        )}
-        
-        <div className="absolute top-4 left-4 z-10">
-            <Card className="p-2">
-                <TripCodeBadge code={tripId} onCopy={handleCopyCode} />
-            </Card>
+    <div style={{ padding: 16 }}>
+      <div style={{ display: "flex", gap: 16, alignItems: "center", marginBottom: 12 }}>
+        <div style={{ flex: 1 }}>
+          <DestinationSearch onSelect={onDestinationSelected} />
+        </div>
+        <div style={{ minWidth: 240, color: "#444" }}>
+          {status}
         </div>
       </div>
-      
-      <div className="h-full flex flex-col">
-        <Card className="m-2 mb-0 flex-1 rounded-b-none flex flex-col">
-          <Tabs defaultValue="participants" className="flex-1 flex flex-col">
-            <TabsList className="grid w-full grid-cols-3 m-4">
-              <TabsTrigger value="participants"><Users className="mr-2"/> Status</TabsTrigger>
-              <TabsTrigger value="chat"><MessageSquare className="mr-2"/> Chat</TabsTrigger>
-              <TabsTrigger value="expenses"><IndianRupee className="mr-2"/> Expenses</TabsTrigger>
-            </TabsList>
-            
-            <TabsContent value="participants" className="flex-1 overflow-y-auto px-4">
-                <div className="space-y-4">
-                    <ComputeToggle value={computeRoutesEnabled} onChange={setComputeRoutesEnabled} />
-                    <ParticipantsList participants={augmentedParticipants} />
-                     <div className="space-y-2 pt-4">
-                      <h4 className="font-semibold">Book a ride</h4>
-                       <div className="flex flex-wrap gap-2">
-                          <RideButton
-                            provider="uber"
-                            pickup={{ latitude: pickupLat, longitude: pickupLng }}
-                            drop={{ latitude: destLat, longitude: destLng }}
-                            label="Book Uber"
-                          />
-                          <RideButton
-                            provider="ola"
-                            pickup={{ latitude: pickupLat, longitude: pickupLng }}
-                            drop={{ latitude: destLat, longitude: destLng }}
-                            label="Book Ola"
-                          />
-                          <RideButton
-                            provider="rapido"
-                            pickup={{ latitude: pickupLat, longitude: pickupLng }}
-                            drop={{ latitude: destLat, longitude: destLng }}
-                            label="Book Rapido"
-                          />
-                          <RideButton
-                            provider="transit"
-                            pickup={{ latitude: pickupLat, longitude: pickupLng }}
-                            drop={{ latitude: destLat, longitude: destLng }}
-                            label="Open Maps"
-                          />
-                       </div>
-                    </div>
-                </div>
-            </TabsContent>
 
-            <TabsContent value="chat" className="flex-1 flex flex-col h-full">
-              <ChatBox messages={messages.map(m => ({...m, timestamp: m.createdAt ? new Date(m.createdAt).toLocaleTimeString() : ''}))} onSendMessage={sendMessage} />
-            </TabsContent>
-            
-            <TabsContent value="expenses" className="flex-1 overflow-y-auto px-4">
-              <ExpenseCalculator
-                participants={participants.map(p => ({ id: p.id, name: p.name || 'Anonymous' }))}
-                expenses={expenses}
-                onAddExpenseAction={addExpense}
-              />
-            </TabsContent>
-          </Tabs>
-        </Card>
+      <div style={{ display: "flex", gap: 12 }}>
+        <div style={{ flex: 1 }}>
+          <div style={{ height: 600 }}>
+            <TripMap />
+          </div>
+        </div>
+
+        <aside style={{ width: 320, borderLeft: "1px solid #eee", paddingLeft: 12 }}>
+          <h3>Participants</h3>
+          {/* participant list UI */}
+        </aside>
       </div>
     </div>
   );
