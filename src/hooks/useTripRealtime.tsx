@@ -18,6 +18,8 @@ import { getFirebaseInstances } from '@/lib/firebaseClient';
 import { getTripLocal, saveTripLocal } from '@/lib/fallbackStore';
 import { errorEmitter } from '@/firebase/error-emitter';
 import { FirestorePermissionError } from '@/firebase/errors';
+import type { User } from 'firebase/auth';
+
 
 export type Participant = {
   id: string;
@@ -62,7 +64,7 @@ const useEmulator = process.env.NEXT_PUBLIC_USE_FIREBASE_EMULATOR === 'true';
 
 export default function useTripRealtime(
   tripId: string,
-  currentUser: { id: string; name: string; avatarUrl: string; mode?: string } | null
+  currentUser: User | null
 ) {
   const [tripDoc, setTripDoc] = useState<TripDoc | null>(null);
   const [participants, setParticipants] = useState<Participant[]>([]);
@@ -102,13 +104,11 @@ export default function useTripRealtime(
       console.warn('Initial local read failed', e);
     }
     
-    // Add current user to participants list on load
     if (currentUser) {
         const p: Participant = {
-            id: currentUser.id,
-            name: currentUser.name,
-            avatarUrl: currentUser.avatarUrl,
-            mode: currentUser.mode || tripDoc?.mode,
+            id: currentUser.uid,
+            name: currentUser.displayName || 'Anonymous',
+            avatarUrl: currentUser.photoURL || `https://i.pravatar.cc/150?u=${currentUser.uid}`,
         };
         const trip = getTripLocal(tripId) || { id: tripId, participants: [], messages: [], expenses: [] };
         const existingParticipantIndex = trip.participants.findIndex((par: Participant) => par.id === p.id);
@@ -217,16 +217,15 @@ export default function useTripRealtime(
     return () => {
       unsubs.current.forEach((u) => u());
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tripId, currentUser?.id, tripDoc?.mode]);
+  }, [tripId, currentUser?.uid]);
 
   const sendMessage = async (text: string) => {
     if (!tripId || !currentUser) return;
-    const { id: senderId, name: userName, avatarUrl } = currentUser;
+    const { uid: senderId, displayName, photoURL } = currentUser;
     const payload: Omit<Message, 'id' | 'createdAt'> = {
       senderId,
-      userName,
-      avatarUrl,
+      userName: displayName || 'Anonymous',
+      avatarUrl: photoURL || `https://i.pravatar.cc/150?u=${senderId}`,
       text,
     };
 

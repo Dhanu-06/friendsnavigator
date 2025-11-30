@@ -86,3 +86,8 @@
     @apply opacity-0 absolute;
   }
 }
+
+#map-container, .map-root, .tt-map {
+  width: 100%;
+  min-height: 500px;
+}

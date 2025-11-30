@@ -1,48 +1,61 @@
-
 import { NextResponse } from 'next/server';
-
-function haversineDistance(lat1: number, lon1: number, lat2: number, lon2: number) {
-  const R = 6371000;
-  const toRad = (v: number) => (v * Math.PI) / 180;
-  const dLat = toRad(lat2 - lat1);
-  const dLon = toRad(lon2 - lon1);
-  const a =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return R * c;
-}
 
 export async function POST(req: Request) {
   try {
-    const body = await req.json().catch(() => ({}));
-    const participants = Array.isArray(body.participants) ? body.participants : [];
+    const body = await req.json();
+    const { participants, destination } = body;
 
-    if (!participants || participants.length === 0) {
+    if (!participants || !Array.isArray(participants) || !destination) {
+      return NextResponse.json({ error: 'missing participants or destination' }, { status: 400 });
+    }
+
+    const key = process.env.TOMTOM_KEY || process.env.NEXT_PUBLIC_TOMTOM_KEY;
+    if (!key) {
+      return NextResponse.json({ error: 'TOMTOM_KEY not set on server' }, { status: 500 });
+    }
+    
+    if (participants.length === 0) {
       return NextResponse.json({ etas: {} });
     }
 
-    const dest = body.destination ?? { lat: 12.9716, lng: 77.5946 };
-    const speedMetersPerSec = 13.89; // Roughly 50 km/h
+    const origins = participants.map(p => `${p.lng},${p.lat}`).join(':');
+    const dest = `${destination.lng},${destination.lat}`;
 
+    const tomtomUrl = `https://api.tomtom.com/routing/1/matrix/json?key=${key}&routeType=fastest&travelMode=car`;
+    
+    const matrixBody = {
+      origins: participants.map(p => ({ point: { latitude: p.lat, longitude: p.lng }})),
+      destinations: [{ point: { latitude: destination.lat, longitude: destination.lng }}]
+    };
+
+    const r = await fetch(tomtomUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(matrixBody)
+    });
+
+    if (!r.ok) {
+        const text = await r.text();
+        return NextResponse.json({ error: 'TomTom matrix failed', details: text }, { status: 502 });
+    }
+
+    const data = await r.json();
     const etas: Record<string, { etaSeconds: number; distanceMeters: number }> = {};
 
-    participants.forEach((p: any) => {
-      const lat = Number(p.lat);
-      const lng = Number(p.lng);
-      if (Number.isNaN(lat) || Number.isNaN(lng)) return;
-
-      const dist = Math.round(haversineDistance(lat, lng, dest.lat, dest.lng));
-      const etaSeconds = Math.round(dist / speedMetersPerSec);
-      etas[p.id] = { etaSeconds, distanceMeters: dist };
-    });
+    if (data.matrix && data.matrix.length > 0) {
+      data.matrix.forEach((row: any, index: number) => {
+        const participantId = participants[index].id;
+        const routeSummary = row[0].response.routeSummary;
+        etas[participantId] = {
+          etaSeconds: routeSummary.travelTimeInSeconds,
+          distanceMeters: routeSummary.lengthInMeters
+        };
+      });
+    }
 
     return NextResponse.json({ etas });
   } catch (err: any) {
-    console.error('[api/matrix-eta] Error:', err);
-    return NextResponse.json(
-        { error: 'Failed to compute ETAs', details: err.message },
-        { status: 500 }
-    );
+    console.error('Matrix handler exception:', err);
+    return NextResponse.json({ error: err?.message ?? 'unknown error' }, { status: 500 });
   }
 }

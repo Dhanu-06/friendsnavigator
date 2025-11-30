@@ -2,6 +2,7 @@
 'use client';
 
 import React, { useEffect, useRef, useState } from 'react';
+import useTomTomLoader from '@/lib/useTomTomLoader';
 
 type Participant = {
   id: string;
@@ -26,12 +27,6 @@ type Props = {
   onRouteReady?: (coords: RouteCoords, summary: { travelTimeSeconds: number | null; distanceMeters: number | null; }) => void;
 };
 
-const TOMTOM_CSS = 'https://api.tomtom.com/maps-sdk-for-web/cdn/6.x/6.25.0/maps/maps.css';
-const TOMTOM_JS = 'https://api.tomtom.com/maps-sdk-for-web/cdn/6.x/6.25.0/maps/maps-web.min.js';
-
-// Use client-visible key only for map tiles. Prefer server-side key for routing (we call /api/route).
-const TOMTOM_KEY_CLIENT = (process.env.NEXT_PUBLIC_TOMTOM_KEY as string) || '';
-
 export default function TomTomMapController({
   participants,
   computeRoutes = false,
@@ -50,52 +45,14 @@ export default function TomTomMapController({
   const markersRef = useRef<Map<string, any>>(new Map());
   const rafRef = useRef<Map<string, number>>(new Map());
   const pollTimerRef = useRef<number | null>(null);
-  const [sdkReady, setSdkReady] = useState(false);
+  const { loaded: sdkReady, error: sdkError } = useTomTomLoader();
   const [mapInitError, setMapInitError] = useState<string | null>(null);
 
-
-  /* --------------------------
-     Load TomTom SDK (client-only)
-     -------------------------- */
   useEffect(() => {
-    if (typeof window === 'undefined') return;
-
-    const win = window as any;
-    if (win.tt) {
-        setSdkReady(true);
-        return;
+    if (sdkError) {
+      setMapInitError(sdkError);
     }
-
-    // Inject CSS
-    if (!document.querySelector('link[data-tt-css]')) {
-      const link = document.createElement('link');
-      link.rel = 'stylesheet';
-      link.href = TOMTOM_CSS;
-      link.setAttribute('data-tt-css', '1');
-      document.head.appendChild(link);
-    }
-    
-    // If script already injected, wait for load
-    const existingScript = document.querySelector('script[data-tt-sdk]');
-    if (existingScript) {
-      const loadListener = () => setSdkReady(true);
-      existingScript.addEventListener('load', loadListener);
-      return () => existingScript.removeEventListener('load', loadListener);
-    }
-
-    // Inject script
-    const s = document.createElement('script');
-    s.src = TOMTOM_JS;
-    s.async = true;
-    s.setAttribute('data-tt-sdk', '1');
-    s.onload = () => setSdkReady(true);
-    s.onerror = () => {
-      console.error('Failed to load TomTom SDK script');
-      setMapInitError('Failed to load TomTom SDK script. Check your internet connection and ad-blocker.');
-    };
-    document.body.appendChild(s);
-
-  }, []);
+  }, [sdkError]);
 
   /* --------------------------
      Initialize map
@@ -110,12 +67,13 @@ export default function TomTomMapController({
     }
 
     try {
-      if (!TOMTOM_KEY_CLIENT) {
+      const key = process.env.NEXT_PUBLIC_TOMTOM_KEY;
+      if (!key) {
         setMapInitError("NEXT_PUBLIC_TOMTOM_KEY is not set. Please add it to your .env file to display the map.");
         return;
       }
       const map = tt.map({
-        key: TOMTOM_KEY_CLIENT,
+        key,
         container: containerRef.current,
         center: [initialCenter.lng, initialCenter.lat],
         zoom: initialZoom,
@@ -374,11 +332,7 @@ export default function TomTomMapController({
 
   async function fetchRoute(originArg: { lat: number; lng: number }, destinationArg: { lat: number; lng: number }) {
     try {
-      const res = await fetch('/api/route', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ origin: originArg, destination: destinationArg }),
-      });
+      const res = await fetch(`/api/route?origin=${originArg.lng},${originArg.lat}&destination=${destinationArg.lng},${destinationArg.lat}`);
       if (!res.ok) {
         console.error("Failed to fetch route:", res.status, await res.text());
         if (onRouteReady) onRouteReady([], { travelTimeSeconds: null, distanceMeters: null });
