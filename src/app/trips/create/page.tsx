@@ -35,7 +35,7 @@ export default function CreateTripPage() {
   const { toast } = useToast();
   const { user } = useUser();
 
-  const updateTripData = (data: Partial<TripData>) => {
+  const updateTripData = (data: Partial<TripData>>) => {
     setTripData((prev) => ({ ...prev, ...data }));
   };
 
@@ -55,7 +55,8 @@ export default function CreateTripPage() {
         lat: 13.3702, // Mock Nandi Hills Lat
         lng: 77.6835, // Mock Nandi HIlls Lng
     };
-
+    
+    // ID generation must be client-side to avoid hydration mismatch
     const tripId = `${tripData.name?.substring(0,5).toUpperCase()}-${Math.random().toString(36).slice(2, 6)}`;
     
     const newTrip = {
@@ -96,18 +97,20 @@ export default function CreateTripPage() {
 
   const copyTripCode = () => {
     if (!createdTripId) return;
-    navigator.clipboard.writeText(createdTripId);
-    toast({
-        title: "Copied!",
-        description: "Trip code copied to clipboard."
-    });
+    if (typeof window !== 'undefined') {
+        navigator.clipboard.writeText(createdTripId);
+        toast({
+            title: "Copied!",
+            description: "Trip code copied to clipboard."
+        });
+    }
   }
 
   const progress = ((step - 1) / 3) * 100;
 
   const getCurrentCoords = async (): Promise<{lat: number, lng: number} | null> => {
     return new Promise((resolve) => {
-      if (!navigator.geolocation) return resolve(null);
+      if (typeof window === 'undefined' || !navigator.geolocation) return resolve(null);
       navigator.geolocation.getCurrentPosition(
         (pos) => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
         () => resolve(null),
@@ -132,12 +135,12 @@ export default function CreateTripPage() {
     }
     if (mode === 'metro') {
       const url = 'https://www.google.com/maps/search/?api=1&query=metro%20near%20me';
-      window.open(url, '_blank');
+      if (typeof window !== 'undefined') window.open(url, '_blank');
       return;
     }
     if (mode === 'bmtc') {
       const url = 'https://www.google.com/maps/search/?api=1&query=bus%20stop%20near%20me';
-      window.open(url, '_blank');
+      if (typeof window !== 'undefined') window.open(url, '_blank');
       return;
     }
   };
@@ -157,8 +160,8 @@ export default function CreateTripPage() {
 
                 <div className="relative">
                     {/* Step 1: Basic Details */}
-                    <div className={cn("step-card", step === 1 ? 'active' : 'inactive')}>
-                        <CardContent className="space-y-6 p-6">
+                    <div className={cn("step-card p-6", step === 1 ? 'active' : 'inactive')}>
+                        <CardContent className="space-y-6">
                             <CardTitle>Step 1: Trip Details</CardTitle>
                             <div className="space-y-4">
                                 <div className="space-y-2">
@@ -177,8 +180,8 @@ export default function CreateTripPage() {
                     </div>
 
                     {/* Step 2: Trip Type */}
-                    <div className={cn("step-card", step === 2 ? 'active' : 'inactive')}>
-                        <CardContent className="space-y-6 p-6">
+                    <div className={cn("step-card p-6", step === 2 ? 'active' : 'inactive')}>
+                        <CardContent className="space-y-6">
                             <CardTitle>Step 2: Type of Trip</CardTitle>
                             <TripTypeToggle value={tripData.tripType!} onValueChange={(val) => updateTripData({ tripType: val })} />
                         </CardContent>
@@ -189,8 +192,8 @@ export default function CreateTripPage() {
                     </div>
 
                     {/* Step 3: Mode Selection */}
-                    <div className={cn("step-card", step === 3 ? 'active' : 'inactive')}>
-                         <CardContent className="space-y-6 p-6">
+                    <div className={cn("step-card p-6", step === 3 ? 'active' : 'inactive')}>
+                         <CardContent className="space-y-6">
                              <CardTitle>Step 3: How are you travelling?</CardTitle>
                             {tripData.tripType === 'within-city' ? (
                                 <>
@@ -214,8 +217,8 @@ export default function CreateTripPage() {
                     </div>
 
                     {/* Step 4: Review & Share */}
-                    <div className={cn("step-card", step === 4 ? 'active' : 'inactive')}>
-                        <CardContent className="space-y-6 p-6 text-center">
+                    <div className={cn("step-card p-6", step === 4 ? 'active' : 'inactive')}>
+                        <CardContent className="space-y-6 text-center">
                             <div className="flex justify-center">
                                 <PartyPopper className="h-16 w-16 text-green-500" />
                             </div>
@@ -248,3 +251,5 @@ export default function CreateTripPage() {
     </div>
   );
 }
+
+    
