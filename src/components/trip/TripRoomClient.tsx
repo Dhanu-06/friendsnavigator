@@ -92,11 +92,24 @@ export default function TripRoomClient({ tripId }: { tripId: string }) {
   }
 
 
+  if (authLoading) {
+    return <div className="flex h-screen w-full items-center justify-center">Loading user...</div>;
+  }
+  
+  if (tripStatus === 'connecting') {
+      return <div className="flex h-screen w-full items-center justify-center">Connecting to trip...</div>
+  }
+
+  if (tripStatus === 'error' || !tripDoc) {
+      return <div className="flex h-screen w-full items-center justify-center text-red-500">Error loading trip. Please check the trip ID or your connection.</div>
+  }
+
+
   return (
     <div style={{ padding: 12 }}>
       <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 12 }}>
         <div style={{ flex: 1 }}>
-          <DestinationSearch onSelect={onDestinationSelected} />
+          <DestinationSearch onSelect={onDestinationSelected} placeholder={destination?.name || "Search destination..."} />
         </div>
         <div>
           <label style={{ marginRight: 8 }}>
@@ -113,6 +126,8 @@ export default function TripRoomClient({ tripId }: { tripId: string }) {
              <TomTomMapController 
                 participants={participantsMapForController} 
                 destination={destination}
+                computeRoutes={live}
+                onParticipantETA={(id, data) => { /* Could use this for other updates */}}
               />
           </div>
         </div>
